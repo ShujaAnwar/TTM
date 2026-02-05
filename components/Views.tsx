@@ -26,9 +26,11 @@ import {
   Paperclip,
   Loader2,
   Copy,
-  Calendar
+  Calendar,
+  Bookmark,
+  Edit2
 } from 'lucide-react';
-import { Task, UtilityBill, AppState, Priority, RecurrenceType } from '../types';
+import { Task, UtilityBill, AppState, Priority, RecurrenceType, Reminder } from '../types';
 import { CATEGORIES, PRIORITIES, RECURRENCE_TYPES, CAMPUSES } from '../constants';
 import { format, differenceInDays, startOfWeek, endOfWeek, isSameDay, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
@@ -56,6 +58,7 @@ export const Layout: React.FC<{
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setView('dashboard')} />
           <NavItem icon={<CheckSquare size={20} />} label="Task Manager" active={currentView === 'tasks'} onClick={() => setView('tasks')} />
+          <NavItem icon={<Bookmark size={20} />} label="Reminder Library" active={currentView === 'library'} onClick={() => setView('library')} />
           <NavItem icon={<Receipt size={20} />} label="Utility Bills" active={currentView === 'utilities'} onClick={() => setView('utilities')} />
           <NavItem icon={<BarChart3 size={20} />} label="Analytics" active={currentView === 'reports'} onClick={() => setView('reports')} />
           <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800">
@@ -126,6 +129,102 @@ const NavItem: React.FC<{ icon: React.ReactNode; label: string; active?: boolean
     <span className="text-sm">{label}</span>
   </button>
 );
+
+// --- Reminder Library View ---
+
+export const ReminderLibrary: React.FC<{
+  reminders: Reminder[];
+  onInstantiate: (r: Reminder) => void;
+  setView: (v: any) => void;
+}> = ({ reminders, onInstantiate, setView }) => {
+  const [activeTab, setActiveTab] = useState<'Daily' | 'Weekly' | 'Monthly'>('Daily');
+
+  const filteredReminders = useMemo(() => {
+    return reminders.filter(r => r.type === activeTab);
+  }, [reminders, activeTab]);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white">
+              <Bookmark size={24} />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white">Reminder Library</h2>
+          </div>
+          <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all">
+            <Plus size={18} /> ADD {activeTab.toUpperCase()}
+          </button>
+        </div>
+
+        <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
+          {['Daily', 'Weekly', 'Monthly'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
+                activeTab === tab 
+                  ? 'text-indigo-600 border-indigo-600 bg-white dark:bg-slate-900' 
+                  : 'text-slate-400 border-transparent hover:text-slate-600 dark:hover:text-slate-200'
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                {tab === 'Daily' && <SettingsIcon size={16} />}
+                {tab === 'Weekly' && <Calendar size={16} />}
+                {tab === 'Monthly' && <Calendar size={16} />}
+                {tab}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[600px] overflow-y-auto">
+          {filteredReminders.length > 0 ? filteredReminders.map(reminder => (
+            <div key={reminder.id} className="p-6 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
+              <div>
+                <h4 className="text-lg font-bold text-slate-800 dark:text-white group-hover:text-indigo-600 transition-colors">{reminder.title}</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-tighter">{reminder.displayId}</span>
+                  <span className="text-slate-300 dark:text-slate-600">•</span>
+                  <span className="text-xs text-slate-500 font-medium">{reminder.category} • {formatTime(reminder.estimatedTime)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    onInstantiate(reminder);
+                    alert(`"${reminder.title}" added to Task Manager for today.`);
+                  }}
+                  className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition-all"
+                  title="Add to Today"
+                >
+                  <Plus size={20} />
+                </button>
+                <button className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-xl transition-all" title="Edit Item">
+                  <Edit2 size={16} />
+                </button>
+                <button className="w-10 h-10 flex items-center justify-center bg-rose-50 dark:bg-rose-900/10 text-rose-400 hover:text-rose-600 rounded-xl transition-all" title="Delete from Library">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          )) : (
+            <div className="py-20 text-center text-slate-400 italic">
+              No blueprints in the {activeTab} library.
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 text-center">
+          <p className="text-[11px] text-slate-400 italic font-medium">
+            Reminders are library items. Click <Plus size={10} className="inline mx-0.5" /> to instantiate to Today.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- Dashboard View ---
 

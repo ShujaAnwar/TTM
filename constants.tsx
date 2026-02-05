@@ -1,43 +1,24 @@
 
-import { Task, UtilityBill, RecurrenceType } from './types';
+import { Task, UtilityBill, RecurrenceType, Reminder } from './types';
 
-export const INITIAL_TASKS: Task[] = [
-  {
-    id: 'd1',
-    title: 'Donation & Receipt Management',
-    category: 'Finance',
-    priority: 'High',
-    estimatedTime: 45,
-    actualTime: 0,
-    dueDate: new Date().toISOString().split('T')[0],
-    type: 'Daily',
-    status: 'Pending',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'd2',
-    title: 'Coin Box Management',
-    category: 'Operations',
-    priority: 'Medium',
-    estimatedTime: 30,
-    actualTime: 0,
-    dueDate: new Date().toISOString().split('T')[0],
-    type: 'Daily',
-    status: 'Pending',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'w1',
-    title: 'Weekly Expense Review',
-    category: 'Finance',
-    priority: 'High',
-    estimatedTime: 120,
-    actualTime: 0,
-    dueDate: new Date().toISOString().split('T')[0],
-    type: 'Weekly',
-    status: 'Pending',
-    createdAt: new Date().toISOString(),
-  }
+export const INITIAL_TASKS: Task[] = [];
+
+export const INITIAL_REMINDERS: Reminder[] = [
+  // DAILY
+  { id: 'r1', displayId: 'D-01', title: 'Donation & Receipt Management', category: 'Finance', priority: 'High', estimatedTime: 45, type: 'Daily' },
+  { id: 'r2', displayId: 'D-02', title: 'Coin Box Management', category: 'Operations', priority: 'Medium', estimatedTime: 30, type: 'Daily' },
+  { id: 'r3', displayId: 'D-03', title: 'Expense Recording', category: 'Finance', priority: 'High', estimatedTime: 60, type: 'Daily' },
+  { id: 'r4', displayId: 'D-04', title: 'Daily Cash Reconciliation', category: 'Finance', priority: 'High', estimatedTime: 30, type: 'Daily' },
+  { id: 'r5', displayId: 'D-05', title: 'Security Guard Payment Processing', category: 'Admin', priority: 'Medium', estimatedTime: 15, type: 'Daily' },
+  // WEEKLY
+  { id: 'r6', displayId: 'W-01', title: 'Weekly Expense Review', category: 'Finance', priority: 'High', estimatedTime: 120, type: 'Weekly' },
+  { id: 'r7', displayId: 'W-02', title: 'Vendor Payment Follow-ups', category: 'Finance', priority: 'Medium', estimatedTime: 90, type: 'Weekly' },
+  { id: 'r8', displayId: 'W-03', title: 'Staff Attendance Review', category: 'HR', priority: 'Medium', estimatedTime: 45, type: 'Weekly' },
+  // MONTHLY
+  { id: 'r9', displayId: 'M-01', title: 'Monthly Accounts Closing', category: 'Finance', priority: 'High', estimatedTime: 240, type: 'Monthly' },
+  { id: 'r10', displayId: 'M-02', title: 'Utility Bill Management', category: 'Finance', priority: 'High', estimatedTime: 60, type: 'Monthly' },
+  { id: 'r11', displayId: 'M-03', title: 'Salary Processing', category: 'HR', priority: 'High', estimatedTime: 180, type: 'Monthly' },
+  { id: 'r12', displayId: 'M-04', title: 'Financial Summary Report', category: 'Finance', priority: 'High', estimatedTime: 120, type: 'Monthly' },
 ];
 
 export const INITIAL_BILLS: UtilityBill[] = [

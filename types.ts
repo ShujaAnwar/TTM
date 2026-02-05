@@ -19,6 +19,16 @@ export interface Task {
   createdAt: string;
 }
 
+export interface Reminder {
+  id: string;
+  displayId: string;
+  title: string;
+  category: string;
+  priority: Priority;
+  estimatedTime: number;
+  type: 'Daily' | 'Weekly' | 'Monthly';
+}
+
 export interface UtilityBill {
   id: string;
   type: string;
@@ -35,6 +45,7 @@ export interface UtilityBill {
 export interface AppState {
   tasks: Task[];
   bills: UtilityBill[];
+  reminders: Reminder[];
   isDarkMode: boolean;
   activeTaskId: string | null;
 }

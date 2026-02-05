@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Layout, Dashboard, Tasks, Utilities, Reports, Settings } from './components/Views.tsx';
-import { Task, UtilityBill, AppState } from './types.ts';
-import { INITIAL_TASKS, INITIAL_BILLS } from './constants.tsx';
+import { Layout, Dashboard, Tasks, Utilities, Reports, Settings, ReminderLibrary } from './components/Views.tsx';
+import { Task, UtilityBill, AppState, Reminder } from './types.ts';
+import { INITIAL_TASKS, INITIAL_BILLS, INITIAL_REMINDERS } from './constants.tsx';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
     const defaultState: AppState = {
       tasks: INITIAL_TASKS,
       bills: INITIAL_BILLS,
+      reminders: INITIAL_REMINDERS,
       isDarkMode: false,
       activeTaskId: null,
     };
@@ -22,6 +23,7 @@ const App: React.FC = () => {
           ...parsed,
           tasks: Array.isArray(parsed.tasks) ? parsed.tasks : defaultState.tasks,
           bills: Array.isArray(parsed.bills) ? parsed.bills : defaultState.bills,
+          reminders: Array.isArray(parsed.reminders) ? parsed.reminders : defaultState.reminders,
         };
       }
     } catch (e) {
@@ -30,7 +32,7 @@ const App: React.FC = () => {
     return defaultState;
   });
 
-  const [currentView, setCurrentView] = useState<'dashboard' | 'tasks' | 'utilities' | 'reports' | 'settings'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'tasks' | 'utilities' | 'reports' | 'settings' | 'library'>('dashboard');
 
   useEffect(() => {
     localStorage.setItem('chronos_state', JSON.stringify(state));
@@ -80,6 +82,25 @@ const App: React.FC = () => {
     setState(prev => ({ 
       ...prev, 
       tasks: [newTask, ...(Array.isArray(prev.tasks) ? prev.tasks : [])] 
+    }));
+  }, []);
+
+  const instantiateReminder = useCallback((reminder: Reminder) => {
+    const newTask: Task = {
+      id: Math.random().toString(36).substr(2, 9),
+      title: reminder.title,
+      category: reminder.category,
+      priority: reminder.priority,
+      estimatedTime: reminder.estimatedTime,
+      actualTime: 0,
+      type: reminder.type,
+      status: 'Pending',
+      dueDate: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+    };
+    setState(prev => ({ 
+      ...prev, 
+      tasks: [newTask, ...prev.tasks] 
     }));
   }, []);
 
@@ -147,6 +168,7 @@ const App: React.FC = () => {
       {currentView === 'tasks' && <Tasks tasks={state.tasks} onAdd={addTask} onUpdate={updateTask} onDelete={deleteTask} onStart={startTask} onPause={pauseTask} onComplete={completeTask} activeTaskId={state.activeTaskId} />}
       {currentView === 'utilities' && <Utilities bills={state.bills} onAdd={addBill} onUpdate={updateBill} />}
       {currentView === 'reports' && <Reports state={state} />}
+      {currentView === 'library' && <ReminderLibrary reminders={state.reminders} onInstantiate={instantiateReminder} setView={setCurrentView} />}
       {currentView === 'settings' && <Settings state={state} setState={setState} />}
     </Layout>
   );
