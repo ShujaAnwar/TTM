@@ -104,6 +104,34 @@ const App: React.FC = () => {
     }));
   }, []);
 
+  const addReminder = useCallback((reminder: Omit<Reminder, 'id' | 'displayId'>) => {
+    const prefix = reminder.type === 'Daily' ? 'D' : reminder.type === 'Weekly' ? 'W' : 'M';
+    const count = state.reminders.filter(r => r.type === reminder.type).length + 1;
+    const newReminder: Reminder = {
+      ...reminder,
+      id: Math.random().toString(36).substr(2, 9),
+      displayId: `${prefix}-${count.toString().padStart(2, '0')}`,
+    };
+    setState(prev => ({
+      ...prev,
+      reminders: [...prev.reminders, newReminder]
+    }));
+  }, [state.reminders]);
+
+  const updateReminder = useCallback((id: string, updates: Partial<Reminder>) => {
+    setState(prev => ({
+      ...prev,
+      reminders: prev.reminders.map(r => r.id === id ? { ...r, ...updates } : r)
+    }));
+  }, []);
+
+  const deleteReminder = useCallback((id: string) => {
+    setState(prev => ({
+      ...prev,
+      reminders: prev.reminders.filter(r => r.id !== id)
+    }));
+  }, []);
+
   const updateTask = useCallback((taskId: string, updates: Partial<Task>) => {
     setState(prev => ({
       ...prev,
@@ -168,7 +196,16 @@ const App: React.FC = () => {
       {currentView === 'tasks' && <Tasks tasks={state.tasks} onAdd={addTask} onUpdate={updateTask} onDelete={deleteTask} onStart={startTask} onPause={pauseTask} onComplete={completeTask} activeTaskId={state.activeTaskId} />}
       {currentView === 'utilities' && <Utilities bills={state.bills} onAdd={addBill} onUpdate={updateBill} />}
       {currentView === 'reports' && <Reports state={state} />}
-      {currentView === 'library' && <ReminderLibrary reminders={state.reminders} onInstantiate={instantiateReminder} setView={setCurrentView} />}
+      {currentView === 'library' && (
+        <ReminderLibrary 
+          reminders={state.reminders} 
+          onInstantiate={instantiateReminder} 
+          onAdd={addReminder}
+          onUpdate={updateReminder}
+          onDelete={deleteReminder}
+          setView={setCurrentView} 
+        />
+      )}
       {currentView === 'settings' && <Settings state={state} setState={setState} />}
     </Layout>
   );

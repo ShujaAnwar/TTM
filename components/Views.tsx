@@ -28,7 +28,9 @@ import {
   Copy,
   Calendar,
   Bookmark,
-  Edit2
+  Edit2,
+  Menu,
+  X
 } from 'lucide-react';
 import { Task, UtilityBill, AppState, Priority, RecurrenceType, Reminder } from '../types';
 import { CATEGORIES, PRIORITIES, RECURRENCE_TYPES, CAMPUSES } from '../constants';
@@ -46,8 +48,13 @@ export const Layout: React.FC<{
   isDarkMode: boolean;
   toggleDarkMode: () => void;
 }> = ({ children, currentView, setView, isDarkMode, toggleDarkMode }) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
+      {/* Sidebar - Desktop */}
       <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden md:flex shrink-0">
         <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 dark:shadow-none">
@@ -76,6 +83,37 @@ export const Layout: React.FC<{
         </div>
       </aside>
 
+      {/* Mobile Sidebar Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm md:hidden" 
+          onClick={toggleMobileMenu}
+        />
+      )}
+
+      {/* Mobile Sidebar Content */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 shadow-2xl transform transition-transform duration-300 md:hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+              <Clock size={18} />
+            </div>
+            <span className="text-lg font-bold text-slate-800 dark:text-white">TTM Hashmi</span>
+          </div>
+          <button onClick={toggleMobileMenu} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <X size={20} />
+          </button>
+        </div>
+        <nav className="p-4 space-y-2">
+          <NavItem icon={<LayoutDashboard size={18} />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => { setView('dashboard'); toggleMobileMenu(); }} />
+          <NavItem icon={<CheckSquare size={18} />} label="Task Manager" active={currentView === 'tasks'} onClick={() => { setView('tasks'); toggleMobileMenu(); }} />
+          <NavItem icon={<Bookmark size={18} />} label="Reminder Library" active={currentView === 'library'} onClick={() => { setView('library'); toggleMobileMenu(); }} />
+          <NavItem icon={<Receipt size={18} />} label="Utility Bills" active={currentView === 'utilities'} onClick={() => { setView('utilities'); toggleMobileMenu(); }} />
+          <NavItem icon={<BarChart3 size={18} />} label="Analytics" active={currentView === 'reports'} onClick={() => { setView('reports'); toggleMobileMenu(); }} />
+          <NavItem icon={<SettingsIcon size={18} />} label="Settings" active={currentView === 'settings'} onClick={() => { setView('settings'); toggleMobileMenu(); }} />
+        </nav>
+      </aside>
+
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-slate-50 dark:bg-slate-950">
         {/* Spiritual Header */}
         <div className="w-full py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center px-4 shrink-0 transition-colors">
@@ -89,8 +127,11 @@ export const Layout: React.FC<{
 
         <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 shrink-0 z-10">
           <div className="flex items-center gap-4">
-            <button className="md:hidden text-slate-600 dark:text-slate-400 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-              <LayoutDashboard size={24} />
+            <button 
+              onClick={toggleMobileMenu}
+              className="md:hidden text-slate-600 dark:text-slate-400 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Menu size={24} />
             </button>
             <h1 className="text-lg font-semibold text-slate-800 dark:text-white capitalize">
               {currentView.replace('-', ' ')}
@@ -135,13 +176,28 @@ const NavItem: React.FC<{ icon: React.ReactNode; label: string; active?: boolean
 export const ReminderLibrary: React.FC<{
   reminders: Reminder[];
   onInstantiate: (r: Reminder) => void;
+  onAdd: (r: any) => void;
+  onUpdate: (id: string, updates: any) => void;
+  onDelete: (id: string) => void;
   setView: (v: any) => void;
-}> = ({ reminders, onInstantiate, setView }) => {
+}> = ({ reminders, onInstantiate, onAdd, onUpdate, onDelete, setView }) => {
   const [activeTab, setActiveTab] = useState<'Daily' | 'Weekly' | 'Monthly'>('Daily');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
 
   const filteredReminders = useMemo(() => {
     return reminders.filter(r => r.type === activeTab);
   }, [reminders, activeTab]);
+
+  const handleEdit = (reminder: Reminder) => {
+    setEditingReminder(reminder);
+    setIsModalOpen(true);
+  };
+
+  const handleAddNew = () => {
+    setEditingReminder(null);
+    setIsModalOpen(true);
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -153,7 +209,10 @@ export const ReminderLibrary: React.FC<{
             </div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">Reminder Library</h2>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all">
+          <button 
+            onClick={handleAddNew}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all"
+          >
             <Plus size={18} /> ADD {activeTab.toUpperCase()}
           </button>
         </div>
@@ -201,10 +260,18 @@ export const ReminderLibrary: React.FC<{
                 >
                   <Plus size={20} />
                 </button>
-                <button className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-xl transition-all" title="Edit Item">
+                <button 
+                  onClick={() => handleEdit(reminder)}
+                  className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-xl transition-all" 
+                  title="Edit Item"
+                >
                   <Edit2 size={16} />
                 </button>
-                <button className="w-10 h-10 flex items-center justify-center bg-rose-50 dark:bg-rose-900/10 text-rose-400 hover:text-rose-600 rounded-xl transition-all" title="Delete from Library">
+                <button 
+                  onClick={() => { if(confirm('Remove this blueprint?')) onDelete(reminder.id); }}
+                  className="w-10 h-10 flex items-center justify-center bg-rose-50 dark:bg-rose-900/10 text-rose-400 hover:text-rose-600 rounded-xl transition-all" 
+                  title="Delete from Library"
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -222,9 +289,78 @@ export const ReminderLibrary: React.FC<{
           </p>
         </div>
       </div>
+
+      {isModalOpen && (
+        <ReminderModal 
+          reminder={editingReminder} 
+          defaultType={activeTab}
+          onClose={() => setIsModalOpen(false)} 
+          onSubmit={(data) => {
+            if (editingReminder) {
+              onUpdate(editingReminder.id, data);
+            } else {
+              onAdd(data);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
+
+const ReminderModal: React.FC<{ reminder?: Reminder | null; defaultType: RecurrenceType; onClose: () => void; onSubmit: (data: any) => void }> = ({ reminder, defaultType, onClose, onSubmit }) => {
+  const [formData, setFormData] = useState({ 
+    title: reminder?.title || '', 
+    category: reminder?.category || CATEGORIES[0], 
+    priority: reminder?.priority || PRIORITIES[1], 
+    estimatedTime: reminder?.estimatedTime?.toString() || '30', 
+    type: reminder?.type || defaultType 
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 space-y-6">
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white">{reminder ? 'Edit Blueprint' : 'New Library Blueprint'}</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase">Title</label>
+            <input type="text" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl outline-none dark:text-white" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} autoFocus />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase">Category</label>
+              <select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase">Priority</label>
+              <select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>
+                {PRIORITIES.map(p => <option key={p}>{p}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase">Est. Time (Min)</label>
+              <input type="number" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.estimatedTime} onChange={e => setFormData({...formData, estimatedTime: e.target.value})} />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase">Type</label>
+              <select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>
+                {['Daily', 'Weekly', 'Monthly'].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-4">
+          <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:text-slate-700 dark:hover:text-slate-300">Discard</button>
+          <button onClick={() => { if(!formData.title.trim()) return; onSubmit({...formData, estimatedTime: parseInt(formData.estimatedTime) || 30}); onClose(); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Save to Library</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // --- Dashboard View ---
 
@@ -422,7 +558,7 @@ export const Utilities: React.FC<{ bills: UtilityBill[]; onAdd: (bill: any) => v
                   <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-mono">{bill.referenceNumber}</td>
                   <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">{bill.location}</td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-700 dark:text-slate-300">{format(new Date(bill.dueDate), 'MMM dd, yyyy')}</td>
-                  <td className="px-6 py-4 text-right font-bold text-slate-800 dark:text-white">{bill.amount.toLocaleString()}</td>
+                  <td className="px-6 py-4 text-right font-bold text-slate-800 dark:text-white">Rs. {bill.amount.toLocaleString()}</td>
                   <td className="px-6 py-4 text-center">
                     <button onClick={() => onUpdate(bill.id, { status: bill.status === 'Paid' ? 'Pending' : 'Paid' })} className={`px-3 py-1 rounded-full text-xs font-bold ${bill.status === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>{bill.status}</button>
                   </td>
@@ -460,7 +596,7 @@ const UtilityModal: React.FC<{ bill?: any; onClose: () => void; onSubmit: (data:
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">{bill ? 'Clone Utility Bill' : 'New Utility Bill'}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"><MoreVertical size={20} className="rotate-90" /></button>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"><X size={20} /></button>
         </div>
         <div className="p-8 space-y-4">
           <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Utility Type</label><input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} /></div>
