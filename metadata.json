@@ -1,0 +1,7 @@
+{
+  "name": "TTM by Hashmi",
+  "description": "A futuristic task and time management system with built-in utility bill tracking, recurring operational tasks, and deep analytical reporting for organizational efficiency.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
