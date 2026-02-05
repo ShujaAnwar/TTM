@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   CheckSquare, 
@@ -9,878 +8,1079 @@ import {
   Plus, 
   Play, 
   Pause, 
-  Check, 
   Clock, 
-  MoreVertical, 
-  Moon, 
-  Sun, 
-  ArrowUpRight, 
-  ArrowDownRight,
-  Search,
-  Download,
-  Filter,
-  Trash2,
-  AlertCircle,
-  FileText,
-  User,
-  Paperclip,
-  Loader2,
-  Copy,
-  Calendar,
-  Bookmark,
-  Edit2,
-  Menu,
-  X
+  Search, 
+  Download, 
+  Trash2, 
+  Loader2, 
+  Copy, 
+  Calendar, 
+  Bookmark, 
+  Edit2, 
+  Menu, 
+  X, 
+  ShieldCheck, 
+  Activity, 
+  Lock, 
+  Check,
+  Fingerprint,
+  ChevronDown,
+  Target,
+  Moon,
+  Sun,
+  UploadCloud
 } from 'lucide-react';
-import { Task, UtilityBill, AppState, Priority, RecurrenceType, Reminder } from '../types';
-import { CATEGORIES, PRIORITIES, RECURRENCE_TYPES, CAMPUSES } from '../constants';
-import { format, differenceInDays, startOfWeek, endOfWeek, isSameDay, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { Task, UtilityBill, AppState, Priority, TaskStatus, RecurrenceType, Reminder, User, Role, AppSettings } from '../types';
+import { CATEGORIES, PRIORITIES, RECURRENCE_TYPES, CAMPUSES, ROLES } from '../constants';
+import { format, isSameDay, parseISO, isWithinInterval, startOfDay, endOfDay, subDays } from 'date-fns';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+// --- Helper Functions ---
+const formatTime = (minutes: number = 0) => {
+  const safeMinutes = Math.max(0, Math.floor(minutes || 0)); 
+  const h = Math.floor(safeMinutes / 60); 
+  const m = safeMinutes % 60; 
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
+const formatTimeDetailed = (minutes: number = 0) => {
+  const safeMinutes = Math.max(0, minutes || 0);
+  if (safeMinutes === 0) return "0s";
+  const h = Math.floor(safeMinutes / 60);
+  const m = Math.floor(safeMinutes % 60);
+  const s = Math.floor((safeMinutes * 60) % 60);
+  
+  const parts = [];
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0) parts.push(`${s}s`);
+  
+  return parts.length > 0 ? parts.join(' ') : "0s";
+};
+
+const getPriorityColor = (p: Priority) => {
+  switch (p) { 
+    case 'High': return 'bg-rose-500'; 
+    case 'Medium': return 'bg-amber-500'; 
+    case 'Low': return 'bg-emerald-500'; 
+    default: return 'bg-slate-400'; 
+  }
+};
 
 // --- Shared UI Components ---
 
 export const Layout: React.FC<{
+  state: AppState;
   children: React.ReactNode;
   currentView: string;
   setView: (v: any) => void;
-  isDarkMode: boolean;
   toggleDarkMode: () => void;
-}> = ({ children, currentView, setView, isDarkMode, toggleDarkMode }) => {
+  isAdminAuthenticated: boolean;
+  openAdminLogin: () => void;
+}> = ({ state, children, currentView, setView, toggleDarkMode, isAdminAuthenticated, openAdminLogin }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { settings, isDarkMode, currentUser } = state;
+  const { branding, layout, modules, rolePermissions } = settings;
+  const permissions = rolePermissions[currentUser.role];
+  
+  const longPressTimer = useRef<number | null>(null);
 
-  const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
+  const startLongPress = () => {
+    longPressTimer.current = window.setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(50);
+      openAdminLogin();
+    }, 2500);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const navItems = [
+    { id: 'dashboard', label: 'Home', icon: <LayoutDashboard size={20} />, enabled: true },
+    { id: 'tasks', label: 'Tasks', icon: <CheckSquare size={20} />, enabled: modules.taskManager && permissions.viewTasks },
+    { id: 'library', label: 'Library', icon: <Bookmark size={20} />, enabled: modules.reminderLibrary && permissions.viewTasks },
+    { id: 'utilities', label: 'Bills', icon: <Receipt size={20} />, enabled: modules.utilityBills && permissions.manageBills },
+    { id: 'reports', label: 'Reports', icon: <BarChart3 size={20} />, enabled: modules.analytics && permissions.downloadReports },
+  ];
+
+  const adminItem = { id: 'admin', label: 'C-Panel', icon: <ShieldCheck size={20} />, enabled: isAdminAuthenticated };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
+    <div className={`flex h-screen overflow-hidden ${isDarkMode ? 'dark' : ''} bg-slate-50 dark:bg-slate-950 transition-colors duration-300`}>
       {/* Sidebar - Desktop */}
-      <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden md:flex shrink-0">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 dark:shadow-none">
+      <aside className={`bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex shrink-0 transition-all ${layout.compactMode ? 'w-20' : 'w-64'}`}>
+        <div 
+          className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3 cursor-pointer select-none group"
+          onMouseDown={startLongPress}
+          onMouseUp={cancelLongPress}
+          onMouseLeave={cancelLongPress}
+        >
+          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg group-active:scale-110 transition-transform">
             <Clock size={24} />
           </div>
-          <span className="text-xl font-bold tracking-tight text-slate-800 dark:text-white">TTM by Hashmi</span>
+          {!layout.compactMode && <span className="text-xl font-bold tracking-tight text-slate-800 dark:text-white truncate">{branding.orgName}</span>}
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setView('dashboard')} />
-          <NavItem icon={<CheckSquare size={20} />} label="Task Manager" active={currentView === 'tasks'} onClick={() => setView('tasks')} />
-          <NavItem icon={<Bookmark size={20} />} label="Reminder Library" active={currentView === 'library'} onClick={() => setView('library')} />
-          <NavItem icon={<Receipt size={20} />} label="Utility Bills" active={currentView === 'utilities'} onClick={() => setView('utilities')} />
-          <NavItem icon={<BarChart3 size={20} />} label="Analytics" active={currentView === 'reports'} onClick={() => setView('reports')} />
-          <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800">
-            <NavItem icon={<SettingsIcon size={20} />} label="Settings" active={currentView === 'settings'} onClick={() => setView('settings')} />
-          </div>
+          {navItems.filter(i => i.enabled).map(item => (
+            <NavItem key={item.id} icon={item.icon} label={item.label} active={currentView === item.id} onClick={() => setView(item.id)} compact={layout.compactMode} />
+          ))}
+          {adminItem.enabled && (
+             <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800">
+                <NavItem icon={adminItem.icon} label={adminItem.label} active={currentView === 'admin'} onClick={() => setView('admin')} compact={layout.compactMode} className="text-indigo-600" />
+             </div>
+          )}
         </nav>
-        <div className="p-4">
-          <button 
-            onClick={toggleDarkMode}
-            className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <span className="text-sm font-medium">{isDarkMode ? 'Dark Mode' : 'Light Mode'}</span>
-            {isDarkMode ? <Moon size={18} className="text-indigo-400" /> : <Sun size={18} className="text-amber-500" />}
+        <div className="p-4 mt-auto space-y-2">
+          <button onClick={() => setView('settings')} className={`w-full flex items-center ${layout.compactMode ? 'justify-center' : 'px-4'} py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors`}>
+            <SettingsIcon size={20} />
+            {!layout.compactMode && <span className="ml-3 text-sm font-medium">Settings</span>}
+          </button>
+          <button onClick={toggleDarkMode} className="w-full flex items-center justify-center p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400">
+            {isDarkMode ? <Moon size={18} /> : <Sun size={18} />}
+            {!layout.compactMode && <span className="ml-3 text-sm font-medium">{isDarkMode ? 'Dark Mode' : 'Light Mode'}</span>}
           </button>
         </div>
       </aside>
 
-      {/* Mobile Sidebar Overlay */}
+      {/* Mobile Sidebar / Hamburger Overlay */}
       {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm md:hidden" 
-          onClick={toggleMobileMenu}
-        />
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-72 bg-white dark:bg-slate-900 shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white"><Clock size={18} /></div>
+                <span className="font-bold dark:text-white">{branding.orgName}</span>
+              </div>
+              <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-slate-400"><X size={20} /></button>
+            </div>
+            <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+               {navItems.filter(i => i.enabled).map(item => (
+                <NavItem key={item.id} icon={item.icon} label={item.label} active={currentView === item.id} onClick={() => { setView(item.id); setIsMobileMenuOpen(false); }} />
+              ))}
+              {adminItem.enabled && <NavItem icon={adminItem.icon} label={adminItem.label} active={currentView === 'admin'} onClick={() => { setView('admin'); setIsMobileMenuOpen(false); }} className="text-indigo-600" />}
+              <NavItem icon={<SettingsIcon size={20} />} label="Settings" active={currentView === 'settings'} onClick={() => { setView('settings'); setIsMobileMenuOpen(false); }} />
+            </nav>
+            <div className="p-6 border-t border-slate-100 dark:border-slate-800">
+               <button onClick={toggleDarkMode} className="w-full flex items-center justify-center gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-sm">
+                {isDarkMode ? <><Moon size={18} /> Dark Mode</> : <><Sun size={18} /> Light Mode</>}
+              </button>
+            </div>
+          </aside>
+        </div>
       )}
 
-      {/* Mobile Sidebar Content */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 shadow-2xl transform transition-transform duration-300 md:hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
-              <Clock size={18} />
-            </div>
-            <span className="text-lg font-bold text-slate-800 dark:text-white">TTM Hashmi</span>
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {branding.showSpiritualHeader && (
+          <div className="w-full py-2 sm:py-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center px-4 shrink-0 transition-colors shadow-sm">
+            <h2 className="font-arabic text-xl sm:text-2xl text-indigo-600 dark:text-indigo-400 font-bold leading-tight">بسم الله الرحمن الرحیم</h2>
+            <p className="hidden sm:block font-arabic text-sm sm:text-base text-indigo-500/80 dark:text-indigo-300/60 mt-1 max-w-2xl">اللَّهُمَّ لَا سَهْلَ إِلَّا مَا جَعَلْتَهُ سَهْلًا، وَأَنْتَ تَجْعَلُ الْحَزْنَ إِذَا شِئْتَ سَهْلًا</p>
           </div>
-          <button onClick={toggleMobileMenu} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-            <X size={20} />
-          </button>
-        </div>
-        <nav className="p-4 space-y-2">
-          <NavItem icon={<LayoutDashboard size={18} />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => { setView('dashboard'); toggleMobileMenu(); }} />
-          <NavItem icon={<CheckSquare size={18} />} label="Task Manager" active={currentView === 'tasks'} onClick={() => { setView('tasks'); toggleMobileMenu(); }} />
-          <NavItem icon={<Bookmark size={18} />} label="Reminder Library" active={currentView === 'library'} onClick={() => { setView('library'); toggleMobileMenu(); }} />
-          <NavItem icon={<Receipt size={18} />} label="Utility Bills" active={currentView === 'utilities'} onClick={() => { setView('utilities'); toggleMobileMenu(); }} />
-          <NavItem icon={<BarChart3 size={18} />} label="Analytics" active={currentView === 'reports'} onClick={() => { setView('reports'); toggleMobileMenu(); }} />
-          <NavItem icon={<SettingsIcon size={18} />} label="Settings" active={currentView === 'settings'} onClick={() => { setView('settings'); toggleMobileMenu(); }} />
-        </nav>
-      </aside>
+        )}
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-slate-50 dark:bg-slate-950">
-        {/* Spiritual Header */}
-        <div className="w-full py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center px-4 shrink-0 transition-colors">
-          <h2 className="font-arabic text-xl md:text-2xl text-indigo-600 dark:text-indigo-400 font-bold mb-1">
-            بسم الله الرحمن الرحیم
-          </h2>
-          <p className="font-arabic text-lg md:text-xl text-slate-600 dark:text-slate-400 leading-relaxed italic">
-            اللَّهُمَّ لَا سَهْلَ إِلَّا مَا جَعَلْتَهُ سَهْلًا، وَأَنْتَ تَجْعَلُ الْحَزْنَ إِذَا شِئْتَ سَهْلًا
-          </p>
-        </div>
-
-        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 shrink-0 z-10">
+        <header className="h-14 md:h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 md:px-6 shrink-0 z-20">
           <div className="flex items-center gap-4">
-            <button 
-              onClick={toggleMobileMenu}
-              className="md:hidden text-slate-600 dark:text-slate-400 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              <Menu size={24} />
-            </button>
-            <h1 className="text-lg font-semibold text-slate-800 dark:text-white capitalize">
-              {currentView.replace('-', ' ')}
-            </h1>
+            <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden text-slate-600 dark:text-slate-400 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"><Menu size={20} /></button>
+            <h1 className="text-sm md:text-lg font-bold text-slate-800 dark:text-white uppercase tracking-wider truncate max-w-[120px] sm:max-w-none">{currentView.replace('-', ' ')}</h1>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">
-              <Clock size={16} className="text-indigo-600 dark:text-indigo-400" />
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                {format(new Date(), 'MMM dd, yyyy • HH:mm')}
-              </span>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="hidden sm:flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-100 dark:border-slate-700">
+              <Calendar size={14} className="text-slate-400" />
+              <span className="text-[11px] font-bold text-slate-500">{format(new Date(), 'MMM dd, p')}</span>
             </div>
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xs ring-2 ring-white dark:ring-slate-800">
-              AD
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:block text-right">
+                <p className="text-xs font-bold text-slate-800 dark:text-white leading-none">{currentUser.name}</p>
+                <p className="text-[10px] text-slate-400 uppercase font-black">{currentUser.role}</p>
+              </div>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-md">{currentUser.name.charAt(0)}</div>
             </div>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-50 dark:bg-slate-950">
-          {children}
+
+        <div className="flex-1 overflow-y-auto scroll-smooth bg-slate-50 dark:bg-slate-950 pb-20 lg:pb-6">
+          <div className="max-w-[1920px] mx-auto p-4 md:p-6 xl:p-10">
+            {children}
+          </div>
         </div>
+
+        {/* Mobile Bottom Navigation */}
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-2 py-1 flex items-center justify-around z-40 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+           {navItems.filter(i => i.enabled).slice(0, 4).map(item => (
+             <MobileNavItem key={item.id} icon={item.icon} active={currentView === item.id} onClick={() => setView(item.id)} label={item.label} />
+           ))}
+           <MobileNavItem icon={<Menu size={20} />} active={isMobileMenuOpen} onClick={() => setIsMobileMenuOpen(true)} label="More" />
+        </nav>
       </main>
     </div>
   );
 };
 
-const NavItem: React.FC<{ icon: React.ReactNode; label: string; active?: boolean; onClick: () => void }> = ({ icon, label, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-      active 
-        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 dark:shadow-none font-medium' 
-        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-    }`}
-  >
+const NavItem: React.FC<{ icon: React.ReactNode; label: string; active?: boolean; onClick: () => void; compact?: boolean; className?: string }> = ({ icon, label, active, onClick, compact, className }) => (
+  <button onClick={onClick} className={`w-full flex items-center ${compact ? 'justify-center' : 'gap-3 px-4'} py-3 rounded-xl transition-all duration-200 ${active ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'} ${className || ''}`}>
     {icon}
-    <span className="text-sm">{label}</span>
+    {!compact && <span className="text-sm font-bold">{label}</span>}
   </button>
 );
 
-// --- Reminder Library View ---
-
-export const ReminderLibrary: React.FC<{
-  reminders: Reminder[];
-  onInstantiate: (r: Reminder) => void;
-  onAdd: (r: any) => void;
-  onUpdate: (id: string, updates: any) => void;
-  onDelete: (id: string) => void;
-  setView: (v: any) => void;
-}> = ({ reminders, onInstantiate, onAdd, onUpdate, onDelete, setView }) => {
-  const [activeTab, setActiveTab] = useState<'Daily' | 'Weekly' | 'Monthly'>('Daily');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
-
-  const filteredReminders = useMemo(() => {
-    return reminders.filter(r => r.type === activeTab);
-  }, [reminders, activeTab]);
-
-  const handleEdit = (reminder: Reminder) => {
-    setEditingReminder(reminder);
-    setIsModalOpen(true);
-  };
-
-  const handleAddNew = () => {
-    setEditingReminder(null);
-    setIsModalOpen(true);
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white">
-              <Bookmark size={24} />
-            </div>
-            <h2 className="text-xl font-bold text-slate-800 dark:text-white">Reminder Library</h2>
-          </div>
-          <button 
-            onClick={handleAddNew}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all"
-          >
-            <Plus size={18} /> ADD {activeTab.toUpperCase()}
-          </button>
-        </div>
-
-        <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20">
-          {['Daily', 'Weekly', 'Monthly'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab as any)}
-              className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-all border-b-2 ${
-                activeTab === tab 
-                  ? 'text-indigo-600 border-indigo-600 bg-white dark:bg-slate-900' 
-                  : 'text-slate-400 border-transparent hover:text-slate-600 dark:hover:text-slate-200'
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                {tab === 'Daily' && <SettingsIcon size={16} />}
-                {tab === 'Weekly' && <Calendar size={16} />}
-                {tab === 'Monthly' && <Calendar size={16} />}
-                {tab}
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[600px] overflow-y-auto">
-          {filteredReminders.length > 0 ? filteredReminders.map(reminder => (
-            <div key={reminder.id} className="p-6 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
-              <div>
-                <h4 className="text-lg font-bold text-slate-800 dark:text-white group-hover:text-indigo-600 transition-colors">{reminder.title}</h4>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-tighter">{reminder.displayId}</span>
-                  <span className="text-slate-300 dark:text-slate-600">•</span>
-                  <span className="text-xs text-slate-500 font-medium">{reminder.category} • {formatTime(reminder.estimatedTime)}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => {
-                    onInstantiate(reminder);
-                    alert(`"${reminder.title}" added to Task Manager for today.`);
-                  }}
-                  className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition-all"
-                  title="Add to Today"
-                >
-                  <Plus size={20} />
-                </button>
-                <button 
-                  onClick={() => handleEdit(reminder)}
-                  className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-xl transition-all" 
-                  title="Edit Item"
-                >
-                  <Edit2 size={16} />
-                </button>
-                <button 
-                  onClick={() => { if(confirm('Remove this blueprint?')) onDelete(reminder.id); }}
-                  className="w-10 h-10 flex items-center justify-center bg-rose-50 dark:bg-rose-900/10 text-rose-400 hover:text-rose-600 rounded-xl transition-all" 
-                  title="Delete from Library"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          )) : (
-            <div className="py-20 text-center text-slate-400 italic">
-              No blueprints in the {activeTab} library.
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 text-center">
-          <p className="text-[11px] text-slate-400 italic font-medium">
-            Reminders are library items. Click <Plus size={10} className="inline mx-0.5" /> to instantiate to Today.
-          </p>
-        </div>
-      </div>
-
-      {isModalOpen && (
-        <ReminderModal 
-          reminder={editingReminder} 
-          defaultType={activeTab}
-          onClose={() => setIsModalOpen(false)} 
-          onSubmit={(data) => {
-            if (editingReminder) {
-              onUpdate(editingReminder.id, data);
-            } else {
-              onAdd(data);
-            }
-          }}
-        />
-      )}
-    </div>
-  );
-};
-
-const ReminderModal: React.FC<{ reminder?: Reminder | null; defaultType: RecurrenceType; onClose: () => void; onSubmit: (data: any) => void }> = ({ reminder, defaultType, onClose, onSubmit }) => {
-  const [formData, setFormData] = useState({ 
-    title: reminder?.title || '', 
-    category: reminder?.category || CATEGORIES[0], 
-    priority: reminder?.priority || PRIORITIES[1], 
-    estimatedTime: reminder?.estimatedTime?.toString() || '30', 
-    type: reminder?.type || defaultType 
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 space-y-6">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-white">{reminder ? 'Edit Blueprint' : 'New Library Blueprint'}</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">Title</label>
-            <input type="text" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl outline-none dark:text-white" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} autoFocus />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase">Category</label>
-              <select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase">Priority</label>
-              <select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>
-                {PRIORITIES.map(p => <option key={p}>{p}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase">Est. Time (Min)</label>
-              <input type="number" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.estimatedTime} onChange={e => setFormData({...formData, estimatedTime: e.target.value})} />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase">Type</label>
-              <select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>
-                {['Daily', 'Weekly', 'Monthly'].map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-4">
-          <button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:text-slate-700 dark:hover:text-slate-300">Discard</button>
-          <button onClick={() => { if(!formData.title.trim()) return; onSubmit({...formData, estimatedTime: parseInt(formData.estimatedTime) || 30}); onClose(); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Save to Library</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const MobileNavItem: React.FC<{ icon: React.ReactNode; active: boolean; onClick: () => void; label: string }> = ({ icon, active, onClick, label }) => (
+  <button onClick={onClick} className={`flex flex-col items-center justify-center w-16 py-1.5 transition-all ${active ? 'text-indigo-600' : 'text-slate-400 dark:text-slate-500'}`}>
+    <div className={`transition-transform duration-300 ${active ? 'scale-110' : 'scale-100'}`}>{icon}</div>
+    <span className={`text-[10px] mt-0.5 font-bold transition-opacity ${active ? 'opacity-100' : 'opacity-60'}`}>{label}</span>
+  </button>
+);
 
 // --- Dashboard View ---
 
 export const Dashboard: React.FC<{ 
   state: AppState; 
   onStart: (id: string) => void; 
-  onPause: (id: string) => void;
+  onPause: (id: string) => void; 
   onComplete: (id: string) => void;
-}> = ({ state, onStart, onPause, onComplete }) => {
-  const todayTasks = useMemo(() => state.tasks.filter(t => isSameDay(new Date(t.dueDate), new Date())), [state.tasks]);
+  setView?: (v: any) => void;
+}> = ({ state, onStart, onPause, onComplete, setView }) => {
+  const { tasks, bills } = state;
+
+  const todayTasks = useMemo(() => tasks.filter(t => isSameDay(new Date(t.dueDate), new Date())), [tasks]);
   const completedToday = todayTasks.filter(t => t.status === 'Completed').length;
-  const inProgress = state.tasks.filter(t => t.status === 'In Progress');
+  const inProgress = tasks.filter(t => t.status === 'In Progress');
+  const pendingBills = bills.filter(b => b.status === 'Pending').length;
   const totalActual = todayTasks.reduce((acc, t) => acc + (t.actualTime || 0), 0);
   const totalEstimated = todayTasks.reduce((acc, t) => acc + (t.estimatedTime || 0), 0);
-  const productivityScore = totalEstimated > 0 ? Math.round((totalActual / totalEstimated) * 100) : 0;
+  const productivityScore = totalEstimated > 0 ? Math.min(100, Math.round((completedToday / (todayTasks.length || 1)) * 100)) : 0;
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Productivity Score" value={`${productivityScore}%`} icon={<BarChart3 className="text-indigo-600 dark:text-indigo-400" />} trend={productivityScore > 80 ? 'up' : 'down'} subtitle="Actual vs Estimated Time" />
-        <StatCard title="Daily Goal" value={`${completedToday}/${todayTasks.length}`} icon={<CheckSquare className="text-emerald-600 dark:text-emerald-400" />} subtitle="Tasks Completed Today" />
-        <StatCard title="Time Tracked" value={formatTime(totalActual)} icon={<Clock className="text-amber-600 dark:text-amber-400" />} subtitle="Total Working Hours" />
-        <StatCard title="Utility Status" value={state.bills.filter(b => b.status === 'Pending').length.toString()} icon={<Receipt className="text-rose-600 dark:text-rose-400" />} subtitle="Pending Bill Payments" />
+    <div className="space-y-6 sm:space-y-10 animate-in fade-in duration-500">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <DashboardStatCard label="Efficiency" value={`${productivityScore}%`} icon={<Target size={20} />} active={productivityScore > 80} />
+        <DashboardStatCard label="Tasks Done" value={`${completedToday}/${todayTasks.length}`} icon={<CheckSquare size={20} />} />
+        <DashboardStatCard label="Time Logged" value={formatTimeDetailed(totalActual)} icon={<Clock size={20} />} />
+        <DashboardStatCard label="Bills Pending" value={pendingBills.toString()} icon={<Receipt size={20} />} active={pendingBills > 3} color="rose" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <Play size={18} className="text-indigo-600 dark:text-indigo-400" /> In Progress
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-10">
+        <div className="xl:col-span-2 space-y-6 sm:space-y-10">
+          <section className="bg-white dark:bg-slate-900 rounded-[24px] sm:rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <h2 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white flex items-center gap-3 uppercase tracking-widest">
+                <Play size={16} className="text-indigo-600" /> Currently Active
               </h2>
-              <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-full">
-                {inProgress.length} ACTIVE
-              </span>
+              <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 text-[10px] font-black rounded uppercase">{inProgress.length} Tasks</span>
             </div>
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {inProgress.length > 0 ? (
-                inProgress.map(task => (
-                  <ActiveTaskRow key={task.id} task={task} onPause={() => onPause(task.id)} onComplete={() => onComplete(task.id)} />
-                ))
-              ) : (
-                <div className="p-12 text-center text-slate-400">
-                  <Play size={48} className="mx-auto mb-4 opacity-10" />
-                  <p className="text-sm">No tasks currently in progress. Start one from the Task Manager.</p>
-                </div>
+            <div className="divide-y divide-slate-50 dark:divide-slate-800">
+              {inProgress.length > 0 ? inProgress.map(task => (
+                <InProgressRow key={task.id} task={task} onPause={() => onPause(task.id)} onComplete={() => onComplete(task.id)} />
+              )) : (
+                <div className="p-10 sm:p-20 text-center text-slate-400 text-sm italic font-medium">No tasks currently running. Start a task from the Task Manager.</div>
               )}
             </div>
           </section>
 
-          <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-800 dark:text-white">Upcoming Deadlines</h2>
-              <button className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">View All</button>
+          <section className="bg-white dark:bg-slate-900 rounded-[24px] sm:rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white uppercase tracking-widest">Upcoming Priority</h2>
+              <button onClick={() => setView?.('tasks')} className="text-[10px] font-black text-indigo-600 uppercase hover:underline">See All</button>
             </div>
-            <div className="p-6">
-              <div className="space-y-4">
-                {state.tasks.filter(t => t.status !== 'Completed').slice(0, 4).map(task => (
-                  <div key={task.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
-                    <div className={`w-2 h-10 rounded-full ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink shadow-[0_0_10px_rgba(244,63,94,0.4)]' : ''}`} />
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-slate-800 dark:text-white line-clamp-1">{task.title}</h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
-                        <Clock size={12} /> {formatTime(task.estimatedTime)} • Due {format(new Date(task.dueDate), 'MMM dd')}
-                      </p>
-                    </div>
-                    {task.status === 'In Progress' ? (
-                      <button onClick={() => onPause(task.id)} className="p-2 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-all"><Pause size={20} /></button>
-                    ) : (
-                      <button onClick={() => onStart(task.id)} className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"><Play size={20} /></button>
-                    )}
-                  </div>
-                ))}
-              </div>
+            <div className="space-y-3">
+              {tasks.filter(t => t.status !== 'Completed').slice(0, 5).map(task => (
+                <DeadlineRow key={task.id} task={task} onStart={() => onStart(task.id)} />
+              ))}
+              {tasks.length === 0 && <div className="p-10 text-center text-slate-400 text-sm">Task queue is empty.</div>}
             </div>
           </section>
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Task Breakdown</h3>
-            <div className="h-64">
+        <div className="space-y-6 sm:space-y-10">
+          <section className="bg-white dark:bg-slate-900 rounded-[24px] sm:rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm p-6 sm:p-8">
+            <h2 className="text-xs sm:text-sm font-black text-slate-800 dark:text-white mb-8 uppercase tracking-widest text-center">Operation Breakdown</h2>
+            <div className="h-48 sm:h-64 relative mb-4">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={[{ name: 'Pending', value: state.tasks.filter(t => t.status === 'Pending').length }, { name: 'In Progress', value: state.tasks.filter(t => t.status === 'In Progress').length }, { name: 'Completed', value: state.tasks.filter(t => t.status === 'Completed').length }]} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                    <Cell fill="#6366f1" /><Cell fill="#fbbf24" /><Cell fill="#10b981" />
+                  <Pie data={[{ name: 'Done', value: completedToday, color: '#10b981' }, { name: 'Pending', value: tasks.length - completedToday, color: '#6366f1' }]} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
+                    <Cell fill="#10b981" />
+                    <Cell fill="#6366f1" />
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} /><Legend />
+                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
                 </PieChart>
               </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-6 text-white relative overflow-hidden shadow-lg shadow-indigo-100 dark:shadow-none">
-             <div className="absolute top-0 right-0 p-8 opacity-10"><Receipt size={120} /></div>
-             <h3 className="text-lg font-bold mb-2">Operational Insight</h3>
-             <p className="text-indigo-100 text-sm mb-4 leading-relaxed">You have <strong>{state.bills.filter(b => b.status === 'Pending').length} pending bills</strong> that require attention.</p>
-             <button className="px-4 py-2 bg-white text-indigo-600 rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-50 transition-colors">Handle Payments</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- Task Manager View ---
-
-export const Tasks: React.FC<{
-  tasks: Task[];
-  onAdd: (task: any) => void;
-  onUpdate: (id: string, updates: any) => void;
-  onDelete: (id: string) => void;
-  onStart: (id: string) => void;
-  onPause: (id: string) => void;
-  onComplete: (id: string) => void;
-  activeTaskId: string | null;
-}> = ({ tasks, onAdd, onUpdate, onDelete, onStart, onPause, onComplete, activeTaskId }) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [filterType, setFilterType] = useState<RecurrenceType | 'All'>('All');
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const filteredTasks = useMemo(() => {
-    return (tasks || []).filter(t => {
-      if (!t) return false;
-      const matchesFilter = filterType === 'All' || t.type === filterType;
-      const matchesSearch = (t.title || '').toLowerCase().includes(searchQuery.toLowerCase()) || (t.category || '').toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesFilter && matchesSearch;
-    });
-  }, [tasks, filterType, searchQuery]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex-1 max-w-md relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input type="text" placeholder="Search tasks or categories..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-        </div>
-        <div className="flex items-center gap-3">
-          <select className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-medium outline-none dark:text-white" value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
-            <option value="All">All Types</option>
-            {RECURRENCE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
-          </select>
-          <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition-all active:scale-95">
-            <Plus size={20} /><span className="hidden sm:inline">Add Task</span>
-          </button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredTasks.length > 0 ? filteredTasks.map(task => (<TaskCard key={task.id} task={task} onStart={() => onStart(task.id)} onPause={() => onPause(task.id)} onComplete={() => onComplete(task.id)} onDelete={() => onDelete(task.id)} isActive={task.status === 'In Progress'} />)) : (
-          <div className="col-span-full py-20 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800">
-            <CheckSquare size={48} className="mx-auto mb-4 opacity-10" /><p className="text-lg">No tasks found.</p>
-          </div>
-        )}
-      </div>
-      {isModalOpen && <TaskModal onClose={() => setIsModalOpen(false)} onSubmit={onAdd} />}
-    </div>
-  );
-};
-
-// --- Utility Management View ---
-
-export const Utilities: React.FC<{ bills: UtilityBill[]; onAdd: (bill: any) => void; onUpdate: (id: string, updates: any) => void }> = ({ bills, onAdd, onUpdate }) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingBill, setEditingBill] = useState<any>(null);
-
-  const handleClone = (bill: UtilityBill) => {
-    const { id, ...clonedData } = bill;
-    setEditingBill({ ...clonedData, status: 'Pending', month: format(new Date(), 'MMMM yyyy') });
-    setIsModalOpen(true);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
-          <div><h2 className="text-xl font-bold text-slate-800 dark:text-white">Utility Bill Management</h2><p className="text-sm text-slate-500 dark:text-slate-400">Track and manage monthly campus utilities</p></div>
-          <button onClick={() => { setEditingBill(null); setIsModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 transition-all"><Plus size={18} /> Add New Bill</button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-bold">Utility Type</th>
-                <th className="px-6 py-4 font-bold">Ref / Consumer #</th>
-                <th className="px-6 py-4 font-bold">Location</th>
-                <th className="px-6 py-4 font-bold text-sm">Due Date</th>
-                <th className="px-6 py-4 font-bold text-right text-sm">Amount (PKR)</th>
-                <th className="px-6 py-4 font-bold text-center text-sm">Status</th>
-                <th className="px-6 py-4 font-bold text-center text-sm">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {bills.map(bill => (
-                <tr key={bill.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="px-6 py-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center"><Receipt size={16} /></div><span className="font-semibold text-slate-800 dark:text-white">{bill.type}</span></div></td>
-                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-mono">{bill.referenceNumber}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">{bill.location}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-700 dark:text-slate-300">{format(new Date(bill.dueDate), 'MMM dd, yyyy')}</td>
-                  <td className="px-6 py-4 text-right font-bold text-slate-800 dark:text-white">Rs. {bill.amount.toLocaleString()}</td>
-                  <td className="px-6 py-4 text-center">
-                    <button onClick={() => onUpdate(bill.id, { status: bill.status === 'Paid' ? 'Pending' : 'Paid' })} className={`px-3 py-1 rounded-full text-xs font-bold ${bill.status === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>{bill.status}</button>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => handleClone(bill)} title="Clone Bill" className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Copy size={18} /></button>
-                      <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"><MoreVertical size={18} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {isModalOpen && <UtilityModal bill={editingBill} onClose={() => setIsModalOpen(false)} onSubmit={onAdd} />}
-    </div>
-  );
-};
-
-const UtilityModal: React.FC<{ bill?: any; onClose: () => void; onSubmit: (data: any) => void }> = ({ bill, onClose, onSubmit }) => {
-  const [formData, setFormData] = useState(bill || {
-    type: 'Storm Fiber',
-    location: CAMPUSES[0],
-    referenceNumber: '',
-    contactNumber: '',
-    month: format(new Date(), 'MMMM yyyy'),
-    dueDate: format(new Date(), 'yyyy-MM-dd'),
-    amount: 0,
-    status: 'Pending',
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">{bill ? 'Clone Utility Bill' : 'New Utility Bill'}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"><X size={20} /></button>
-        </div>
-        <div className="p-8 space-y-4">
-          <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Utility Type</label><input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} /></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase">Location</label>
-              <select className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>
-                {CAMPUSES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Amount (PKR)</label><input type="number" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.amount} onChange={e => setFormData({...formData, amount: parseInt(e.target.value) || 0})} /></div>
-          </div>
-          <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Reference Number</label><input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.referenceNumber} onChange={e => setFormData({...formData, referenceNumber: e.target.value})} /></div>
-          <div className="grid grid-cols-2 gap-4">
-             <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Due Date</label><input type="date" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.dueDate} onChange={e => setFormData({...formData, dueDate: e.target.value})} /></div>
-             <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Month</label><input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 outline-none dark:text-white" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value})} /></div>
-          </div>
-        </div>
-        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 flex gap-4">
-          <button onClick={onClose} className="flex-1 py-3 text-sm font-bold text-slate-600 dark:text-slate-400 hover:text-slate-800">Discard</button>
-          <button onClick={() => { if(!formData.referenceNumber) return alert('Ref is required'); onSubmit(formData); onClose(); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-2xl font-bold text-sm shadow-xl hover:bg-indigo-700">Save Bill</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// --- Reporting View ---
-
-export const Reports: React.FC<{ state: AppState }> = ({ state }) => {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [fromDate, setFromDate] = useState(format(startOfWeek(new Date()), 'yyyy-MM-dd'));
-  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-
-  const filteredTasks = useMemo(() => {
-    const start = startOfDay(parseISO(fromDate));
-    const end = endOfDay(parseISO(toDate));
-    return state.tasks.filter(t => {
-      const taskDate = parseISO(t.dueDate);
-      return taskDate >= start && taskDate <= end;
-    });
-  }, [state.tasks, fromDate, toDate]);
-
-  const filteredBills = useMemo(() => {
-    const start = startOfDay(parseISO(fromDate));
-    const end = endOfDay(parseISO(toDate));
-    return state.bills.filter(b => {
-      const billDate = parseISO(b.dueDate);
-      return billDate >= start && billDate <= end;
-    });
-  }, [state.bills, fromDate, toDate]);
-
-  const completedTasks = useMemo(() => filteredTasks.filter(t => t.status === 'Completed'), [filteredTasks]);
-  const pendingTasksCount = filteredTasks.filter(t => t.status !== 'Completed').length;
-  const totalActual = completedTasks.reduce((acc, t) => acc + (t.actualTime || 0), 0);
-  const totalEstimated = filteredTasks.reduce((acc, t) => acc + (t.estimatedTime || 0), 0);
-
-  const handleExportPDF = async () => {
-    setIsGenerating(true); setErrorMessage(null);
-    try {
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const primaryColor = [99, 102, 241]; const textColor = [30, 41, 59];
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.text('TTM BY HASHMI', 20, 20);
-      doc.setFontSize(14); doc.setTextColor(textColor[0], textColor[1], textColor[2]); doc.text('Operational Performance Report', 20, 30);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); 
-      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 20, 38);
-      doc.text(`Reporting Period: ${format(parseISO(fromDate), 'MMM dd, yyyy')} to ${format(parseISO(toDate), 'MMM dd, yyyy')}`, 20, 44);
-      
-      doc.setDrawColor(226, 232, 240); doc.line(20, 50, 190, 50);
-      
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Summary Statistics', 20, 60);
-      const stats = [ 
-        { label: 'Total Tasks', value: filteredTasks.length.toString() }, 
-        { label: 'Completed', value: completedTasks.length.toString() }, 
-        { label: 'Pending', value: pendingTasksCount.toString() }, 
-        { label: 'Total Time Tracked', value: formatTime(totalActual) }, 
-        { label: 'Efficiency Index', value: totalActual > 0 ? `${Math.round((totalEstimated/totalActual)*100)}%` : 'N/A' },
-        { label: 'Bills in Range', value: filteredBills.length.toString() }
-      ];
-      
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      stats.forEach((stat, idx) => { 
-        const yPos = 70 + (idx * 8); 
-        doc.text(`${stat.label}:`, 25, yPos); 
-        doc.setFont('helvetica', 'bold'); 
-        doc.text(stat.value, 65, yPos); 
-        doc.setFont('helvetica', 'normal'); 
-      });
-
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Task Log', 20, 125);
-      const tableData = filteredTasks.map(task => [ 
-        task.title || 'Untitled', 
-        task.category || 'General', 
-        task.status || 'Pending', 
-        formatTime(task.estimatedTime || 0), 
-        formatTime(task.actualTime || 0),
-        task.dueDate
-      ]);
-      
-      autoTable(doc, { 
-        startY: 130, 
-        head: [['Task', 'Category', 'Status', 'Est. Time', 'Act. Time', 'Due Date']], 
-        body: tableData, 
-        headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' }, 
-        bodyStyles: { fontSize: 8, textColor: textColor }, 
-        alternateRowStyles: { fillColor: [248, 250, 252] }, 
-        margin: { left: 20, right: 20 },
-        didDrawPage: (data) => { 
-          const pageCount = doc.getNumberOfPages(); 
-          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(148, 163, 184); 
-          doc.text(`TTM by Hashmi - Generated Report - Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, doc.internal.pageSize.height - 10); 
-        } 
-      });
-
-      const filename = `TTM_Report_${fromDate}_to_${toDate}.pdf`;
-      doc.save(filename);
-    } catch (err) { console.error('PDF Error:', err); setErrorMessage('Failed to generate PDF.'); } finally { setIsGenerating(false); }
-  };
-
-  const chartData = useMemo(() => {
-    const last7Days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - i); return format(d, 'EEE'); }).reverse();
-    return last7Days.map(day => ({ name: day, tasks: Math.floor(Math.random() * 5) + 1 }));
-  }, []);
-
-  return (
-    <div className="space-y-8 pb-20">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Reporting Engine</h2>
-            <p className="text-slate-500 dark:text-slate-400">Select a range to analyze and export operational data.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">From Date</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                <input 
-                  type="date" 
-                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                />
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-2xl font-black text-slate-800 dark:text-white">{productivityScore}%</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase">Target</span>
               </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">To Date</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                <input 
-                  type="date" 
-                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                />
-              </div>
+            <div className="flex justify-center gap-6">
+              <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500" /><span className="text-[10px] font-black uppercase text-slate-500">Done</span></div>
+              <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-indigo-500" /><span className="text-[10px] font-black uppercase text-slate-500">Pending</span></div>
             </div>
-          </div>
-        </div>
-        <button 
-          onClick={handleExportPDF} 
-          disabled={isGenerating} 
-          className={`flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50`}
-        >
-          {isGenerating ? <><Loader2 size={20} className="animate-spin" /> Preparing PDF...</> : <><Download size={20} /> Download Report</>}
-        </button>
-      </div>
+          </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Trend Analysis</h3>
-              <span className="text-xs text-slate-400 font-medium">Auto-generated for range</span>
-            </div>
-            <div className="h-80 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData}><XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} /><YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} /><Tooltip cursor={{fill: '#f1f5f9'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} /><Bar dataKey="tasks" fill="#6366f1" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
-          </div>
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Activity Log (Range Selected)</h3>
-            <div className="space-y-4">
-              {filteredTasks.length > 0 ? filteredTasks.slice(0, 10).map(task => (
-                <div key={task.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                  <div>
-                    <h4 className="font-semibold text-slate-800 dark:text-white">{task.title}</h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{task.category} • Scheduled: {task.dueDate}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-sm font-bold ${task.status === 'Completed' ? 'text-emerald-500' : 'text-indigo-600 dark:text-indigo-400'}`}>{task.status}</p>
-                    <p className="text-[10px] text-slate-400">Act: {formatTime(task.actualTime)}</p>
-                  </div>
-                </div>
-              )) : <div className="py-12 text-center text-slate-400 italic">No tasks recorded for this period.</div>}
-            </div>
-          </div>
-        </div>
-        <div className="space-y-8">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8 text-center">
-            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Range Performance</h3>
-            <div className="inline-flex items-center justify-center w-36 h-36 rounded-full border-[10px] border-indigo-50 dark:border-indigo-900/30 relative">
-              <span className="text-4xl font-black text-indigo-600 dark:text-indigo-400">
-                {totalActual > 0 ? Math.round((totalEstimated/totalActual)*100) : 0}%
-              </span>
-            </div>
-            <p className="mt-6 text-sm text-slate-500 leading-relaxed px-4">Based on {completedTasks.length} completed tasks in the selected date range.</p>
-          </div>
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Financial Range Summary</h3>
-            <div className="space-y-4">
-              <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800"><span className="text-sm text-slate-500 dark:text-slate-400">Paid Bills</span><span className="font-bold text-emerald-500">Rs. {filteredBills.filter(b => b.status === 'Paid').reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
-              <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800"><span className="text-sm text-slate-500 dark:text-slate-400">Pending Bills</span><span className="font-bold text-amber-500">Rs. {filteredBills.filter(b => b.status === 'Pending').reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
-              <div className="flex justify-between py-2 pt-4"><span className="text-sm font-bold text-slate-700 dark:text-slate-300">Total Obligation</span><span className="font-black text-slate-800 dark:text-white">Rs. {filteredBills.reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
-            </div>
-          </div>
+          <section className="bg-indigo-600 rounded-[24px] sm:rounded-[32px] p-8 text-white relative overflow-hidden group shadow-xl">
+             <Receipt size={120} className="absolute -bottom-8 -right-8 text-indigo-400 opacity-20 group-hover:scale-110 transition-transform" />
+             <div className="relative z-10">
+               <h3 className="text-xl font-black mb-1">Financial Check</h3>
+               <p className="text-xs text-indigo-100 font-medium mb-6">{pendingBills} pending utility payments detected.</p>
+               <button onClick={() => setView?.('utilities')} className="w-full py-3.5 bg-white text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg hover:bg-indigo-50 transition-all">Settle Bills</button>
+             </div>
+          </section>
         </div>
       </div>
     </div>
   );
 };
 
-// --- Settings View ---
-
-export const Settings: React.FC<{ state: AppState; setState: React.Dispatch<React.SetStateAction<AppState>> }> = ({ state, setState }) => {
-  return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6">User Profile</h3>
-        <div className="flex items-center gap-6 mb-8"><div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-3xl font-black">AD</div><div><h4 className="text-lg font-bold text-slate-800 dark:text-white">Admin User</h4><p className="text-slate-500">ops-admin@organization.org</p></div></div>
-        <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl"><div className="flex items-center gap-3"><Moon size={20} className="text-slate-500 dark:text-slate-400" /><span className="font-medium text-slate-700 dark:text-slate-200">Dark Mode</span></div><button onClick={() => setState(prev => ({ ...prev, isDarkMode: !prev.isDarkMode }))} className={`w-12 h-6 rounded-full relative transition-colors ${state.isDarkMode ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${state.isDarkMode ? 'left-7' : 'left-1'}`} /></button></div>
-      </div>
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8"><button onClick={() => { if(confirm('Reset all data?')) { localStorage.removeItem('chronos_state'); window.location.reload(); } }} className="w-full flex items-center justify-between p-4 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 rounded-2xl hover:bg-rose-50 dark:hover:bg-rose-900/10 transition-colors"><span className="font-medium">Reset Data</span><Trash2 size={18} /></button></div>
+const DashboardStatCard: React.FC<{ label: string; value: string; icon: React.ReactNode; active?: boolean; color?: 'indigo' | 'rose' }> = ({ label, value, icon, active, color = 'indigo' }) => (
+  <div className={`bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-[20px] sm:rounded-[28px] border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col transition-all hover:translate-y-[-4px] group ${active ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-950' : ''}`}>
+    <div className={`p-3 w-fit rounded-xl mb-4 transition-colors ${color === 'rose' ? 'bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white' : 'bg-slate-50 dark:bg-slate-800 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white'}`}>
+      {icon}
     </div>
-  );
-};
-
-// --- Subcomponents ---
-
-const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; trend?: 'up' | 'down'; subtitle?: string }> = ({ title, value, icon, trend, subtitle }) => (
-  <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"><div className="flex justify-between mb-4"><div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">{icon}</div>{trend && <span className={`text-xs font-bold ${trend === 'up' ? 'text-emerald-500' : 'text-rose-500'}`}>{trend === 'up' ? '↑' : '↓'} 12%</span>}</div><h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</h3><p className="text-2xl font-bold mt-1 text-slate-800 dark:text-white">{value}</p></div>
-);
-
-const ActiveTaskRow: React.FC<{ task: Task; onPause: () => void; onComplete: () => void }> = ({ task, onPause, onComplete }) => (
-  <div className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><div className={`w-1.5 h-12 rounded-full bg-amber-400 ${task.priority === 'High' ? 'bg-rose-500 animate-blink shadow-[0_0_8px_rgba(244,63,94,0.6)]' : ''}`} /><div><h4 className="font-bold text-slate-800 dark:text-white text-lg">{task.title}</h4><div className="flex gap-2 text-xs mt-1 text-slate-400"><span>{task.category}</span>•<span>{formatTime(task.actualTime)} / {formatTime(task.estimatedTime)}</span></div></div></div><div className="flex gap-2"><button onClick={onPause} className="px-4 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl font-bold">Pause</button><button onClick={onComplete} className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-100 dark:shadow-none">Complete</button></div></div>
-);
-
-const TaskCard: React.FC<{ task: Task; onStart: () => void; onPause: () => void; onComplete: () => void; onDelete: () => void; isActive: boolean }> = ({ task, onStart, onPause, onComplete, onDelete, isActive }) => (
-  <div className={`p-6 bg-white dark:bg-slate-900 rounded-2xl border transition-all ${isActive ? 'ring-2 ring-indigo-500 border-transparent shadow-xl' : 'border-slate-200 dark:border-slate-800 shadow-sm'}`}>
-    <div className="flex justify-between mb-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 uppercase tracking-widest">{task.type}</span><button onClick={onDelete} className="p-1.5 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button></div>
-    <h3 className="text-lg font-bold text-slate-800 dark:text-white leading-tight min-h-[3rem] mb-2">{task.title}</h3>
-    <div className="flex items-center gap-2 mb-6"><div className={`w-2 h-2 rounded-full ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink shadow-[0_0_8px_rgba(244,63,94,0.6)]' : ''}`} /><span className="text-xs text-slate-500 dark:text-slate-400">{task.priority} Priority • {task.category}</span></div>
-    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl mb-6"><div><p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Est.</p><p className="text-sm font-bold text-slate-800 dark:text-white">{formatTime(task.estimatedTime)}</p></div><div><p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Actual</p><p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{formatTime(task.actualTime)}</p></div></div>
-    <div className="flex gap-2">{task.status === 'Completed' ? <div className="w-full py-2.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl font-bold text-center">Completed</div> : isActive ? <><button onClick={onPause} className="flex-1 py-2.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-xl font-bold">Pause</button><button onClick={onComplete} className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold">Complete</button></> : <button onClick={onStart} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 dark:shadow-none">Start Work</button>}</div>
+    <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
+    <span className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white mt-0.5">{value}</span>
   </div>
 );
 
-const TaskModal: React.FC<{ onClose: () => void; onSubmit: (data: any) => void }> = ({ onClose, onSubmit }) => {
-  const [formData, setFormData] = useState({ title: '', category: CATEGORIES[0], priority: PRIORITIES[1], estimatedTime: '30', type: RECURRENCE_TYPES[0], dueDate: format(new Date(), 'yyyy-MM-dd') });
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 space-y-6">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-white">New Operational Task</h2>
-        <div className="space-y-4">
-          <div><label className="text-xs font-bold text-slate-500 uppercase">Title</label><input type="text" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl outline-none dark:text-white" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} autoFocus /></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Category</label><select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Priority</label><select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Time (Min)</label><input type="number" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.estimatedTime} onChange={e => setFormData({...formData, estimatedTime: e.target.value})} /></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Type</label><select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>{RECURRENCE_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
-          </div>
+const InProgressRow: React.FC<{ task: Task; onPause: () => void; onComplete: () => void }> = ({ task, onPause, onComplete }) => (
+  <div className="p-4 sm:p-6 flex flex-col md:flex-row items-center justify-between gap-4 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+    <div className="flex items-center gap-4 flex-1 w-full">
+      <div className={`w-1.5 h-10 rounded-full flex-shrink-0 ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink' : ''}`} />
+      <div className="flex-1 min-w-0">
+        <h4 className="font-bold text-slate-800 dark:text-white text-sm base truncate">{task.title}</h4>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-[10px] font-black text-slate-400 uppercase">{task.category}</span>
+          <span className="text-indigo-600 text-[10px] font-black animate-pulse">{formatTimeDetailed(task.actualTime)}</span>
         </div>
-        <div className="flex gap-4"><button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:text-slate-700 dark:hover:text-slate-300">Discard</button><button onClick={() => { if(!formData.title.trim()) return; onSubmit({...formData, estimatedTime: parseInt(formData.estimatedTime) || 30}); onClose(); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all">Create Task</button></div>
+      </div>
+    </div>
+    <div className="flex items-center gap-3 w-full md:w-auto">
+      <button onClick={onPause} className="flex-1 md:flex-none px-6 py-2.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-xl text-[10px] font-black uppercase tracking-widest">Pause</button>
+      <button onClick={onComplete} className="flex-1 md:flex-none px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md">Complete</button>
+    </div>
+  </div>
+);
+
+const DeadlineRow: React.FC<{ task: Task; onStart: () => void }> = ({ task, onStart }) => (
+  <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/60 flex items-center justify-between transition-all hover:shadow-md">
+    <div className="flex items-center gap-4 flex-1 min-w-0">
+      <div className={`w-1 h-8 rounded-full flex-shrink-0 ${getPriorityColor(task.priority)}`} />
+      <div className="min-w-0">
+        <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs sm:text-sm truncate">{task.title}</h4>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[9px] font-black text-slate-400 uppercase">Due {format(parseISO(task.dueDate), 'MMM dd')}</span>
+        </div>
+      </div>
+    </div>
+    <button onClick={onStart} className="p-2.5 text-slate-400 hover:text-indigo-600 transition-colors bg-white dark:bg-slate-900 rounded-xl shadow-sm"><Play size={16} fill="currentColor" fillOpacity={0.1} /></button>
+  </div>
+);
+
+// --- Task Manager Component ---
+
+export const Tasks: React.FC<{
+  tasks: Task[];
+  onAdd: (task: Omit<Task, 'id' | 'actualTime' | 'createdAt'>) => void;
+  onUpdate: (taskId: string, updates: Partial<Task>) => void;
+  onDelete: (taskId: string) => void;
+  onClone: (taskId: string) => void;
+}> = ({ tasks, onAdd, onUpdate, onDelete, onClone }) => {
+  const [filter, setFilter] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  const filtered = useMemo(() => tasks.filter(t => t.title.toLowerCase().includes(filter.toLowerCase())), [tasks, filter]);
+
+  const handleClone = (taskId: string) => {
+    const source = tasks.find(t => t.id === taskId);
+    if (source) {
+      const cloneTemplate = {
+        ...source,
+        id: '', 
+        title: `${source.title} (Clone)`,
+        status: 'Pending' as TaskStatus,
+        actualTime: 0,
+      };
+      setEditingTask(cloneTemplate as Task);
+      setIsModalOpen(true);
+    }
+  };
+
+  return (
+    <div className="space-y-6 md:space-y-10 animate-in fade-in duration-500">
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-stretch sm:items-center">
+        <div className="relative flex-1 max-w-lg">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Search tasks..." 
+            className="w-full pl-12 pr-4 py-3 sm:py-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+          />
+        </div>
+        <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="px-6 py-3 sm:py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] sm:text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-2"><Plus size={20} /> New Task</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-8">
+        {filtered.map(task => (
+          <TaskCard key={task.id} task={task} onUpdate={onUpdate} onDelete={onDelete} onClone={() => handleClone(task.id)} onEdit={() => { setEditingTask(task); setIsModalOpen(true); }} />
+        ))}
+      </div>
+
+      {isModalOpen && <NewTaskModal task={editingTask} onClose={() => setIsModalOpen(false)} onSubmit={(data) => { if(editingTask?.id) onUpdate(editingTask.id, data); else onAdd(data); setIsModalOpen(false); }} />}
+    </div>
+  );
+};
+
+const TaskCard: React.FC<{ task: Task; onUpdate: (id: string, u: any) => void; onDelete: (id: string) => void; onClone: () => void; onEdit: () => void }> = ({ task, onUpdate, onDelete, onClone, onEdit }) => {
+  const isRunning = task.status === 'In Progress';
+  const isCompleted = task.status === 'Completed';
+
+  return (
+    <div className={`bg-white dark:bg-slate-900 rounded-[28px] p-6 sm:p-8 border-2 shadow-sm transition-all relative flex flex-col h-full ${isRunning ? 'border-indigo-400 shadow-indigo-100 ring-2 ring-indigo-50 dark:ring-0' : 'border-indigo-50 dark:border-indigo-900/20'}`}>
+      <div className="flex justify-between items-start mb-6">
+        <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-[10px] font-black uppercase rounded-lg tracking-widest">{task.type}</span>
+        <div className="flex gap-1">
+          <button onClick={onEdit} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors" title="Edit Task"><Edit2 size={16} /></button>
+          <button onClick={onClone} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors" title="Clone Task"><Copy size={16} /></button>
+          <button onClick={() => confirm('Delete?') && onDelete(task.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors" title="Delete Task"><Trash2 size={16} /></button>
+        </div>
+      </div>
+      <h3 className="text-lg sm:text-xl font-black text-slate-800 dark:text-white leading-tight mb-4 min-h-[3rem]">{task.title}</h3>
+      <div className="flex items-center gap-3 mb-8">
+        <div className={`w-2.5 h-2.5 rounded-full ${getPriorityColor(task.priority)} shadow-sm ${task.priority === 'High' ? 'animate-blink' : ''}`} />
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{task.priority} Priority • {task.category}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-4 p-5 bg-slate-50 dark:bg-slate-800 rounded-2xl mb-8">
+        <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">ESTIMATED</p><p className="text-sm font-black text-slate-700 dark:text-slate-200">{formatTime(task.estimatedTime)}</p></div>
+        <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">MEASURED</p><p className={`text-sm font-black ${isRunning ? 'text-indigo-600 animate-pulse' : 'text-slate-700 dark:text-slate-200'}`}>{formatTimeDetailed(task.actualTime)}</p></div>
+      </div>
+      <div className="mt-auto space-y-3">
+        {!isCompleted ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <button disabled={isRunning} onClick={() => onUpdate(task.id, { status: 'In Progress' })} className={`py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${isRunning ? 'bg-indigo-50 text-indigo-400 cursor-not-allowed' : 'bg-indigo-600 text-white shadow-md active:scale-95'}`}><Play size={12} fill="currentColor" /> START</button>
+              <button disabled={!isRunning} onClick={() => onUpdate(task.id, { status: 'Pending' })} className={`py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${!isRunning ? 'bg-slate-50 text-slate-300 cursor-not-allowed' : 'bg-amber-100 text-amber-600 active:scale-95'}`}><Pause size={12} fill="currentColor" /> PAUSE</button>
+            </div>
+            <button onClick={() => onUpdate(task.id, { status: 'Completed' })} className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 active:scale-95"><Check size={14} strokeWidth={3} /> COMPLETE WORK</button>
+          </>
+        ) : (
+          <button onClick={() => onUpdate(task.id, { status: 'Pending' })} className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 flex items-center justify-center gap-2 active:scale-95"><Activity size={14} /> RE-OPEN FOR CORRECTION</button>
+        )}
       </div>
     </div>
   );
-}
-
-const formatTime = (minutes: number = 0) => {
-  const safeMinutes = Math.max(0, minutes || 0); const h = Math.floor(safeMinutes / 60); const m = Math.floor(safeMinutes % 60); const s = Math.floor((safeMinutes * 60) % 60);
-  return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
 };
 
-const getPriorityColor = (p: Priority) => {
-  switch (p) { case 'High': return 'bg-rose-500'; case 'Medium': return 'bg-amber-500'; case 'Low': return 'bg-emerald-500'; default: return 'bg-slate-400'; }
+// --- Reports View ---
+
+export const Reports: React.FC<{ state: AppState }> = ({ state }) => {
+  const { tasks, bills, settings } = state;
+  const [fromDate, setFromDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
+  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [loading, setLoading] = useState(false);
+
+  const filteredTasks = useMemo(() => { 
+    const start = startOfDay(parseISO(fromDate)); 
+    const end = endOfDay(parseISO(toDate)); 
+    return tasks.filter(t => isWithinInterval(parseISO(t.dueDate), { start, end })); 
+  }, [tasks, fromDate, toDate]);
+
+  const filteredBillsCount = useMemo(() => {
+    const start = startOfDay(parseISO(fromDate)); 
+    const end = endOfDay(parseISO(toDate)); 
+    return bills.filter(b => isWithinInterval(parseISO(b.dueDate), { start, end })).length;
+  }, [bills, fromDate, toDate]);
+
+  const stats = useMemo(() => { 
+    const total = filteredTasks.length;
+    const completed = filteredTasks.filter(t => t.status === 'Completed').length;
+    const pending = total - completed;
+    const timeTrackedMin = filteredTasks.reduce((acc, t) => acc + (t.actualTime || 0), 0); 
+    const estimatedMin = filteredTasks.reduce((acc, t) => acc + (t.estimatedTime || 0), 0); 
+    
+    const timeTrackedStr = formatTimeDetailed(timeTrackedMin);
+    const efficiency = timeTrackedMin > 0 && estimatedMin > 0 ? `${Math.round((timeTrackedMin / estimatedMin) * 100)}%` : 'N/A';
+
+    return { total, completed, pending, timeTrackedStr, efficiency }; 
+  }, [filteredTasks]);
+
+  const downloadPDF = async () => {
+    setLoading(true);
+    try {
+      const doc = new jsPDF();
+      const orgName = (settings.branding.orgName || 'TTM BY HASHMI').toUpperCase();
+      
+      doc.setTextColor(99, 102, 241); 
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.text(orgName, 15, 20);
+
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(16);
+      doc.text('Operational Performance Report', 15, 32);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated on: ${format(new Date(), 'MMMM do, yyyy h:mm a')}`, 15, 42);
+      doc.text(`Reporting Period: ${format(parseISO(fromDate), 'MMM dd, yyyy')} to ${format(parseISO(toDate), 'MMM dd, yyyy')}`, 15, 48);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(30, 41, 59);
+      doc.text('Summary Statistics', 15, 62);
+
+      const statsY = 75;
+      const statsX = 15;
+      const valX = statsX + 45;
+      const lineSpacing = 8;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Total Tasks:', statsX, statsY);
+      doc.text('Completed:', statsX, statsY + lineSpacing);
+      doc.text('Pending:', statsX, statsY + (lineSpacing * 2));
+      doc.text('Total Time Tracked:', statsX, statsY + (lineSpacing * 3));
+      doc.text('Efficiency Index:', statsX, statsY + (lineSpacing * 4));
+      doc.text('Bills in Range:', statsX, statsY + (lineSpacing * 5));
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(stats.total.toString(), valX, statsY);
+      doc.text(stats.completed.toString(), valX, statsY + lineSpacing);
+      doc.text(stats.pending.toString(), valX, statsY + (lineSpacing * 2));
+      doc.text(stats.timeTrackedStr, valX, statsY + (lineSpacing * 3));
+      doc.text(stats.efficiency, valX, statsY + (lineSpacing * 4));
+      doc.text(filteredBillsCount.toString(), valX, statsY + (lineSpacing * 5));
+
+      doc.setFontSize(13);
+      doc.text('Task Log', 15, 135);
+
+      autoTable(doc, { 
+        startY: 145, 
+        head: [['Task', 'Category', 'Status', 'Est. Time', 'Act. Time', 'Due Date']], 
+        body: filteredTasks.map(t => [t.title, t.category, t.status, formatTime(t.estimatedTime), formatTimeDetailed(t.actualTime), t.dueDate]),
+        theme: 'striped',
+        headStyles: { fillColor: [99, 102, 241], textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 255] },
+        styles: { fontSize: 9, cellPadding: 4 }
+      });
+
+      doc.save(`TTM_Report_${format(new Date(), 'yyyyMMdd_HHmm')}.pdf`);
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="space-y-10 animate-in fade-in duration-500 max-w-5xl mx-auto pb-20">
+       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          <div className="space-y-1">
+            <h2 className="text-3xl font-black text-[#6366f1] tracking-tight uppercase">TTM BY HASHMI</h2>
+            <p className="text-xl font-bold text-slate-800 dark:text-white">Operational Performance Report</p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch gap-4 w-full sm:w-auto">
+            <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-transparent text-xs font-bold px-3 py-2 outline-none dark:text-white" />
+              <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />
+              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-transparent text-xs font-bold px-3 py-2 outline-none dark:text-white" />
+            </div>
+            <button onClick={downloadPDF} disabled={loading} className="px-8 py-4 bg-[#6366f1] text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} DOWNLOAD PDF
+            </button>
+          </div>
+       </div>
+
+       <div className="bg-white dark:bg-slate-900 p-8 sm:p-12 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-2xl space-y-12">
+          <div className="space-y-4">
+             <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Generated on: <span className="font-bold text-slate-800 dark:text-white">{format(new Date(), 'MMMM do, yyyy h:mm a')}</span></p>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Reporting Period: <span className="font-bold text-slate-800 dark:text-white">{format(parseISO(fromDate), 'MMM dd, yyyy')} to {format(parseISO(toDate), 'MMM dd, yyyy')}</span></p>
+             </div>
+
+             <hr className="border-slate-100 dark:border-slate-800" />
+
+             <div className="space-y-6">
+                <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-wider">Summary Statistics</h3>
+                <div className="grid grid-cols-1 gap-y-3 max-w-sm ml-4">
+                   {[
+                     { label: 'Total Tasks:', value: stats.total },
+                     { label: 'Completed:', value: stats.completed },
+                     { label: 'Pending:', value: stats.pending },
+                     { label: 'Total Time Tracked:', value: stats.timeTrackedStr },
+                     { label: 'Efficiency Index:', value: stats.efficiency },
+                     { label: 'Bills in Range:', value: filteredBillsCount },
+                   ].map(item => (
+                     <div key={item.label} className="flex justify-between items-center text-sm">
+                        <span className="font-medium text-slate-600 dark:text-slate-400">{item.label}</span>
+                        <span className="font-black text-slate-800 dark:text-white text-right w-40">{item.value}</span>
+                     </div>
+                   ))}
+                </div>
+             </div>
+
+             <div className="space-y-6 pt-6">
+                <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-wider">Task Log</h3>
+                <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                   <table className="w-full text-left">
+                      <thead>
+                         <tr className="bg-[#6366f1] text-white">
+                            <th className="px-6 py-4 text-[11px] font-black uppercase tracking-wider">Task</th>
+                            <th className="px-6 py-4 text-[11px] font-black uppercase tracking-wider">Category</th>
+                            <th className="px-6 py-4 text-[11px] font-black uppercase tracking-wider">Status</th>
+                            <th className="px-6 py-4 text-[11px] font-black uppercase tracking-wider">Est. Time</th>
+                            <th className="px-6 py-4 text-[11px] font-black uppercase tracking-wider">Act. Time</th>
+                            <th className="px-6 py-4 text-[11px] font-black uppercase tracking-wider">Due Date</th>
+                         </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                         {filteredTasks.length > 0 ? filteredTasks.map((task, idx) => (
+                            <tr key={task.id} className={idx % 2 === 1 ? 'bg-[#f8faff] dark:bg-slate-800/20' : 'bg-white dark:bg-slate-900'}>
+                               <td className="px-6 py-4 text-xs font-bold text-slate-800 dark:text-white leading-tight">{task.title}</td>
+                               <td className="px-6 py-4 text-xs font-medium text-slate-500">{task.category}</td>
+                               <td className="px-6 py-4 text-xs font-bold">{task.status}</td>
+                               <td className="px-6 py-4 text-xs font-mono font-medium text-slate-500">{formatTime(task.estimatedTime)}</td>
+                               <td className="px-6 py-4 text-xs font-mono font-bold text-slate-800 dark:text-white">{formatTimeDetailed(task.actualTime)}</td>
+                               <td className="px-6 py-4 text-xs font-mono font-medium text-slate-500">{task.dueDate}</td>
+                            </tr>
+                         )) : (
+                            <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-medium italic">No entries for this period.</td></tr>
+                         )}
+                      </tbody>
+                   </table>
+                </div>
+             </div>
+          </div>
+       </div>
+    </div>
+  );
+};
+
+// --- Modals and Internal Views ---
+
+export const NewTaskModal: React.FC<{ task?: Task | null; onClose: () => void; onSubmit: (data: any) => void }> = ({ task, onClose, onSubmit }) => {
+  const [formData, setFormData] = useState({
+    title: task?.title || '',
+    category: task?.category || CATEGORIES[0],
+    priority: task?.priority || PRIORITIES[1],
+    time: task?.estimatedTime.toString() || '30',
+    type: task?.type || RECURRENCE_TYPES[0],
+    dueDate: task?.dueDate || format(new Date(), 'yyyy-MM-dd')
+  });
+
+  const isEdit = !!(task && task.id);
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-[500px] rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-300">
+        <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-[#1e293b] dark:text-white uppercase tracking-wider">{isEdit ? 'EDIT OPERATIONAL TASK' : 'NEW OPERATIONAL TASK'}</h2>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+        </div>
+        
+        <div className="p-8 space-y-7 bg-[#fcfcfd] dark:bg-slate-900/50">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">WORK TITLE</label>
+            <input 
+              type="text" 
+              className="w-full px-5 py-4 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-[#6366f1] transition-all font-medium text-slate-700 dark:text-white"
+              value={formData.title}
+              onChange={e => setFormData({...formData, title: e.target.value})}
+              autoFocus
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">CATEGORY</label>
+              <div className="relative">
+                <select 
+                  className="w-full px-4 py-4 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-[#6366f1] font-bold text-slate-700 dark:text-white appearance-none"
+                  value={formData.category}
+                  onChange={e => setFormData({...formData, category: e.target.value})}
+                >
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">PRIORITY</label>
+              <div className="relative">
+                <select 
+                  className="w-full px-4 py-4 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-[#6366f1] font-bold text-slate-700 dark:text-white appearance-none"
+                  value={formData.priority}
+                  onChange={e => setFormData({...formData, priority: e.target.value as any})}
+                >
+                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">EST. TIME (MIN)</label>
+              <input 
+                type="number" 
+                className="w-full px-5 py-4 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-[#6366f1] font-bold text-slate-700 dark:text-white"
+                value={formData.time}
+                onChange={e => setFormData({...formData, time: e.target.value})}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">TYPE</label>
+              <div className="relative">
+                <select 
+                  className="w-full px-4 py-4 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-[#6366f1] font-bold text-slate-700 dark:text-white appearance-none"
+                  value={formData.type}
+                  onChange={e => setFormData({...formData, type: e.target.value as any})}
+                >
+                  {RECURRENCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">DUE DATE</label>
+            <div className="relative">
+              <input 
+                type="date" 
+                className="w-full px-5 py-4 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-[#6366f1] font-bold text-slate-700 dark:text-white"
+                value={formData.dueDate}
+                onChange={e => setFormData({...formData, dueDate: e.target.value})}
+              />
+              <Calendar size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        <div className="px-8 py-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <button type="button" onClick={onClose} className="text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors">DISCARD</button>
+          <button 
+            type="button" 
+            onClick={() => { if(!formData.title.trim()) return; onSubmit({ ...formData, estimatedTime: parseInt(formData.time) || 30 }); }} 
+            className="px-10 py-4 bg-[#6366f1] text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all"
+          >
+            {isEdit ? 'SAVE CHANGES' : 'INITIALIZE TASK'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const UtilityModal: React.FC<{ bill?: UtilityBill | null; onClose: () => void; onSubmit: (data: any) => void }> = ({ bill, onClose, onSubmit }) => {
+  const [formData, setFormData] = useState({
+    type: bill?.type || '',
+    location: bill?.location || CAMPUSES[0],
+    referenceNumber: bill?.referenceNumber || '',
+    contactNumber: bill?.contactNumber || '',
+    month: bill?.month || format(new Date(), 'MMMM yyyy'),
+    dueDate: bill?.dueDate || format(new Date(), 'yyyy-MM-dd'),
+    amount: bill?.amount?.toString() || '0',
+    status: bill?.status || 'Pending',
+  });
+
+  const isEdit = !!(bill && bill.id);
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-[550px] rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-300">
+        <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
+          <h2 className="text-xl font-bold text-[#1e293b] dark:text-white uppercase tracking-wider">{isEdit ? 'EDIT BILL RECORD' : 'NEW BILL RECORD'}</h2>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><X size={24} /></button>
+        </div>
+        
+        <div className="p-8 space-y-5 bg-[#fcfcfd] dark:bg-slate-900/50 max-h-[70vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">UTILITY TYPE</label>
+              <input type="text" className="w-full px-5 py-3.5 bg-white border-2 border-slate-200 rounded-2xl outline-none focus:border-[#6366f1] font-medium" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} placeholder="e.g. K-Electric" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">LOCATION</label>
+              <select className="w-full px-4 py-3.5 bg-white border-2 border-slate-200 rounded-2xl outline-none focus:border-[#6366f1] font-bold" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>
+                {CAMPUSES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">REF NUMBER</label>
+              <input type="text" className="w-full px-5 py-3.5 bg-white border-2 border-slate-200 rounded-2xl outline-none focus:border-[#6366f1] font-medium" value={formData.referenceNumber} onChange={e => setFormData({...formData, referenceNumber: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">CONTACT #</label>
+              <input type="text" className="w-full px-5 py-3.5 bg-white border-2 border-slate-200 rounded-2xl outline-none focus:border-[#6366f1] font-medium" value={formData.contactNumber} onChange={e => setFormData({...formData, contactNumber: e.target.value})} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">DUE DATE</label>
+              <input type="date" className="w-full px-5 py-3.5 bg-white border-2 border-slate-200 rounded-2xl outline-none focus:border-[#6366f1] font-bold" value={formData.dueDate} onChange={e => setFormData({...formData, dueDate: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">AMOUNT (RS.)</label>
+              <input type="number" className="w-full px-5 py-3.5 bg-white border-2 border-slate-200 rounded-2xl outline-none focus:border-[#6366f1] font-bold" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} />
+            </div>
+          </div>
+        </div>
+        <div className="px-8 py-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <button type="button" onClick={onClose} className="text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">DISCARD</button>
+          <button type="button" onClick={() => onSubmit({...formData, amount: parseFloat(formData.amount)||0})} className="px-10 py-4 bg-[#6366f1] text-white rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-xl">SAVE RECORD</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const Utilities: React.FC<{ bills: UtilityBill[]; onAdd: (bill: Omit<UtilityBill, 'id'>) => void; onClone: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, updates: Partial<UtilityBill>) => void; }> = ({ bills, onAdd, onClone, onDelete, onUpdate }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingBill, setEditingBill] = useState<UtilityBill | null>(null);
+
+  const handleEdit = (bill: UtilityBill) => { setEditingBill(bill); setIsModalOpen(true); };
+  const handleClone = (id: string) => { const source = bills.find(b => b.id === id); if (source) { setEditingBill({ ...source, id: '', type: `${source.type} (Copy)` }); setIsModalOpen(true); } };
+
+  return (
+    <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div><h2 className="text-2xl font-black text-slate-800 dark:text-white">Bill Registry</h2><p className="text-sm text-slate-500 font-medium">Tracking organizational utility overheads.</p></div>
+        <button onClick={() => { setEditingBill(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2"><Plus size={20} /> New Record</button>
+      </div>
+      <div className="hidden lg:block bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50/50 dark:bg-slate-800/30 text-slate-400 text-[10px] uppercase font-black tracking-[0.2em]">
+            <th className="px-8 py-5 text-center">Paid?</th>
+            <th className="px-8 py-5">Utility</th>
+            <th className="px-8 py-5">Location</th>
+            <th className="px-8 py-5">Ref #</th>
+            <th className="px-8 py-5">Due Date</th>
+            <th className="px-8 py-5">Amount</th>
+            <th className="px-8 py-5 text-center">Status</th>
+            <th className="px-8 py-5 text-right">Actions</th>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {bills.map(bill => {
+              const isPaid = bill.status === 'Paid';
+              return (
+                <tr key={bill.id} className={`hover:bg-slate-50/30 transition-colors ${isPaid ? 'opacity-60 grayscale-[0.3]' : ''}`}>
+                  <td className="px-8 py-5 text-center">
+                    <button 
+                      onClick={() => onUpdate(bill.id, { status: isPaid ? 'Pending' : 'Paid' })}
+                      className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all duration-300 ${isPaid ? 'bg-emerald-600 border-emerald-600 shadow-lg shadow-emerald-200 text-white' : 'bg-white border-slate-200 text-transparent hover:border-indigo-400'}`}
+                    >
+                      <Check size={16} strokeWidth={4} />
+                    </button>
+                  </td>
+                  <td className={`px-8 py-5 font-black text-sm transition-all ${isPaid ? 'line-through text-slate-400' : 'text-slate-800 dark:text-white'}`}>{bill.type}</td>
+                  <td className="px-8 py-5 text-sm font-medium text-slate-500">{bill.location}</td>
+                  <td className="px-8 py-5 text-[10px] font-mono font-bold text-slate-400">{bill.referenceNumber}</td>
+                  <td className="px-8 py-5 text-sm font-bold">{format(new Date(bill.dueDate), 'MMM dd')}</td>
+                  <td className={`px-8 py-5 font-black transition-all ${isPaid ? 'text-slate-400' : 'text-slate-800 dark:text-white'}`}>Rs. {bill.amount.toLocaleString()}</td>
+                  <td className="px-8 py-5 text-center"><span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>{bill.status}</span></td>
+                  <td className="px-8 py-5 text-right"><div className="flex justify-end gap-2"><button onClick={() => handleEdit(bill)} className="p-2 text-slate-400 hover:text-indigo-600"><Edit2 size={18} /></button><button onClick={() => handleClone(bill.id)} className="p-2 text-slate-400 hover:text-indigo-600"><Copy size={18} /></button><button onClick={() => confirm('Delete?') && onDelete(bill.id)} className="p-2 text-slate-400 hover:text-rose-500"><Trash2 size={18} /></button></div></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {isModalOpen && <UtilityModal bill={editingBill} onClose={() => setIsModalOpen(false)} onSubmit={(data) => { if(editingBill?.id) onUpdate(editingBill.id, data); else onAdd(data); setIsModalOpen(false); }} />}
+    </div>
+  );
+};
+
+export const ReminderLibrary: React.FC<{
+  reminders: Reminder[];
+  onInstantiate: (reminder: Reminder) => void;
+  onAdd: (reminder: Omit<Reminder, 'id' | 'displayId'>) => void;
+  onUpdate: (id: string, updates: Partial<Reminder>) => void;
+  onDelete: (id: string) => void;
+  setView: (v: any) => void;
+}> = ({ reminders, onInstantiate, onAdd, onUpdate, onDelete, setView }) => {
+  const [activeTab, setActiveTab] = useState<'Daily' | 'Weekly' | 'Monthly'>('Daily');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
+  const filtered = reminders.filter(r => r.type === activeTab);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
+       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div><h2 className="text-2xl font-black text-slate-800 dark:text-white">Operation Library</h2><p className="text-sm text-slate-500 font-medium">Standard blueprints for recurring organizational tasks.</p></div>
+        <button onClick={() => { setEditingReminder(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2"><Plus size={20} /> New Blueprint</button>
+      </div>
+      <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="flex border-b border-slate-100 dark:border-slate-800 bg-slate-50/30">
+          {['Daily', 'Weekly', 'Monthly'].map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === tab ? 'text-indigo-600 border-indigo-600 bg-white dark:bg-slate-900' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>{tab}</button>
+          ))}
+        </div>
+        <div className="divide-y divide-slate-50 dark:divide-slate-800">
+          {filtered.length > 0 ? filtered.map(reminder => (
+            <div key={reminder.id} className="p-6 flex items-center justify-between hover:bg-slate-50/50 transition-colors group">
+              <div>
+                <h4 className="font-black text-slate-800 dark:text-white group-hover:text-indigo-600 transition-colors">{reminder.title}</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">{reminder.displayId}</span>
+                  <span className="text-xs text-slate-500 font-medium">{reminder.category} • {formatTime(reminder.estimatedTime)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { onInstantiate(reminder); setView('tasks'); }} className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 transition-all"><Plus size={20} /></button>
+                <button onClick={() => { setEditingReminder(reminder); setIsModalOpen(true); }} className="w-10 h-10 flex items-center justify-center bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 rounded-xl transition-all"><Edit2 size={16} /></button>
+                <button onClick={() => confirm('Delete blueprint?') && onDelete(reminder.id)} className="w-10 h-10 flex items-center justify-center bg-rose-50 dark:bg-rose-900/10 text-rose-400 hover:text-rose-600 rounded-xl transition-all"><Trash2 size={16} /></button>
+              </div>
+            </div>
+          )) : <div className="py-20 text-center text-slate-400 italic">Library is empty for this recurrence type.</div>}
+        </div>
+      </div>
+      {isModalOpen && <ReminderModal reminder={editingReminder} defaultType={activeTab} onClose={() => setIsModalOpen(false)} onSubmit={(data) => { if (editingReminder) onUpdate(editingReminder.id, data); else onAdd(data); setIsModalOpen(false); }} />}
+    </div>
+  );
+};
+
+const ReminderModal: React.FC<{ reminder?: Reminder | null; defaultType: RecurrenceType; onClose: () => void; onSubmit: (data: any) => void }> = ({ reminder, defaultType, onClose, onSubmit }) => {
+  const [formData, setFormData] = useState({ title: reminder?.title || '', category: reminder?.category || CATEGORIES[0], priority: reminder?.priority || PRIORITIES[1], estimatedTime: reminder?.estimatedTime?.toString() || '30', type: (reminder?.type as any) || (defaultType as any) });
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] shadow-2xl p-8 space-y-6 animate-in zoom-in-95 border border-white/10">
+        <h2 className="text-xl font-black uppercase tracking-widest dark:text-white">{reminder ? 'Edit Blueprint' : 'New Library Entry'}</h2>
+        <div className="space-y-4">
+          <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Operation Title</label><input type="text" className="w-full px-5 py-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 rounded-2xl outline-none dark:text-white font-bold" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} autoFocus /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Category</label><select className="w-full px-4 py-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 rounded-2xl dark:text-white font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div>
+            <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Priority</label><select className="w-full px-4 py-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 rounded-2xl dark:text-white font-bold" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Est. Mins</label><input type="number" className="w-full px-4 py-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 rounded-2xl dark:text-white font-bold" value={formData.estimatedTime} onChange={e => setFormData({...formData, estimatedTime: e.target.value})} /></div>
+            <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</label><select className="w-full px-4 py-4 border-2 border-slate-100 dark:border-slate-800 dark:bg-slate-950 rounded-2xl dark:text-white font-bold" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>{['Daily', 'Weekly', 'Monthly'].map(t => <option key={t}>{t}</option>)}</select></div>
+          </div>
+        </div>
+        <div className="flex gap-4 pt-4"><button onClick={onClose} className="flex-1 py-4 text-slate-400 font-black text-xs uppercase tracking-widest">Discard</button><button onClick={() => formData.title && onSubmit({...formData, estimatedTime: parseInt(formData.estimatedTime) || 30})} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Blueprint</button></div>
+      </div>
+    </div>
+  );
+};
+
+export const Settings: React.FC<{ state: AppState; setState: React.Dispatch<React.SetStateAction<AppState>> }> = ({ state, setState }) => {
+  return (
+    <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-500">
+      <div><h2 className="text-3xl font-black tracking-tight dark:text-white">Account Control</h2><p className="text-sm text-slate-500 font-medium mt-1">Manage personal preferences and localized settings.</p></div>
+      <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 p-8 shadow-sm space-y-6">
+        <div className="flex items-center gap-6 pb-6 border-b border-slate-50 dark:border-slate-800">
+          <div className="w-16 h-16 rounded-[24px] bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-xl font-black text-white">{state.currentUser.name.charAt(0)}</div>
+          <div><h4 className="font-black text-lg dark:text-white">{state.currentUser.name}</h4><p className="text-xs text-slate-400 font-bold uppercase">{state.currentUser.email} • {state.currentUser.role}</p></div>
+        </div>
+        <div className="space-y-4">
+           <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+            <span className="text-xs font-black uppercase tracking-widest">Dark Interface</span>
+            <button onClick={() => setState(prev => ({...prev, isDarkMode: !prev.isDarkMode}))} className={`w-12 h-7 rounded-full relative transition-colors ${state.isDarkMode ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all ${state.isDarkMode ? 'left-6' : 'left-1'}`} /></button>
+          </div>
+          <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+            <span className="text-xs font-black uppercase tracking-widest">Compact Layout</span>
+            <button onClick={() => setState(prev => ({...prev, settings: {...prev.settings, layout: {...prev.settings.layout, compactMode: !prev.settings.layout.compactMode}}}))} className={`w-12 h-7 rounded-full relative transition-colors ${state.settings.layout.compactMode ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all ${state.settings.layout.compactMode ? 'left-6' : 'left-1'}`} /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const AdminPanel: React.FC<{ state: AppState; updateSettings: (s: AppSettings) => void; addUser: (u: Omit<User, 'id'>) => void; updateUser: (id: string, u: Partial<User>) => void; deleteUser: (id: string) => void; }> = ({ state, updateSettings, addUser, updateUser, deleteUser }) => {
+  const [tab, setTab] = useState<'branding' | 'modules' | 'users' | 'logs'>('branding');
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  const handlePublish = () => {
+    setIsPublishing(true);
+    setTimeout(() => {
+      setIsPublishing(false);
+      alert('System synchronized successfully!');
+    }, 2000);
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div><h2 className="text-3xl font-black tracking-tight dark:text-white">Central Operations Panel</h2><p className="text-sm text-slate-500 font-medium">System governance and workforce oversight.</p></div>
+        <div className="flex items-center gap-4 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+          <button 
+            onClick={handlePublish}
+            disabled={isPublishing}
+            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-200 dark:shadow-none hover:scale-105 transition-all disabled:opacity-50 disabled:scale-100 shrink-0"
+          >
+            {isPublishing ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+            {isPublishing ? 'PUBLISHING...' : 'PUBLISH CHANGES'}
+          </button>
+          <div className="flex gap-2 p-1.5 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 shrink-0">
+            {['branding', 'modules', 'users', 'logs'].map((t: any) => (
+              <button key={t} onClick={() => setTab(t)} className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{t}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      
+      <div className="animate-in slide-in-from-bottom-4 duration-500">
+        {tab === 'branding' && (
+          <div className="max-w-xl mx-auto bg-white dark:bg-slate-900 rounded-[32px] p-8 border border-slate-100 dark:border-slate-800 shadow-sm space-y-6">
+             <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Organization Name</label><input type="text" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold dark:text-white" value={state.settings.branding.orgName} onChange={e => updateSettings({...state.settings, branding: {...state.settings.branding, orgName: e.target.value}})} /></div>
+             <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Footer Text</label><input type="text" className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold dark:text-white" value={state.settings.branding.footerText} onChange={e => updateSettings({...state.settings, branding: {...state.settings.branding, footerText: e.target.value}})} /></div>
+          </div>
+        )}
+        
+        {tab === 'modules' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.keys(state.settings.modules).map(mod => (
+              <div key={mod} className={`p-6 rounded-[32px] border-2 transition-all cursor-pointer ${(state.settings.modules as any)[mod] ? 'bg-white dark:bg-slate-900 border-indigo-600 shadow-xl' : 'bg-slate-50 dark:bg-slate-800 border-transparent opacity-50'}`} onClick={() => updateSettings({...state.settings, modules: {...state.settings.modules, [mod]: !(state.settings.modules as any)[mod]}})}>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${(state.settings.modules as any)[mod] ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}><Activity size={24} /></div>
+                <h4 className="font-black text-sm uppercase tracking-widest dark:text-white">{mod.replace(/([A-Z])/g, ' $1')}</h4>
+                <p className={`text-[9px] font-black uppercase mt-1 ${(state.settings.modules as any)[mod] ? 'text-indigo-600' : 'text-slate-400'}`}>{(state.settings.modules as any)[mod] ? 'Operational' : 'Disabled'}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'users' && (
+          <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-xl">
+             <div className="p-8 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest dark:text-white">Personnel Registry</h3><button onClick={() => addUser({ name: 'New Staff', email: 'staff@org.com', role: 'Staff', suspended: false })} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Add User</button></div>
+             <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 dark:bg-slate-800 text-[9px] uppercase font-black text-slate-400 tracking-[0.2em]"><th className="px-8 py-5">Personnel</th><th className="px-8 py-5">Role</th><th className="px-8 py-5">Status</th><th className="px-8 py-5 text-right">Actions</th></thead><tbody className="divide-y divide-slate-50 dark:divide-slate-800">{state.users.map(u => (<tr key={u.id} className="hover:bg-slate-50/50 transition-colors"><td className="px-8 py-4"><p className="font-bold dark:text-white">{u.name}</p><p className="text-[10px] text-slate-400 font-bold uppercase">{u.email}</p></td><td className="px-8 py-4"><select className="bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg text-[10px] font-black uppercase outline-none dark:text-white" value={u.role} onChange={e => updateUser(u.id, { role: e.target.value as any })}>{ROLES.map(r => <option key={r}>{r}</option>)}</select></td><td className="px-8 py-4"><span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${u.suspended ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{u.suspended ? 'LOCKED' : 'ACTIVE'}</span></td><td className="px-8 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={() => updateUser(u.id, { suspended: !u.suspended })} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl"><Lock size={18} /></button><button onClick={() => deleteUser(u.id)} className="p-2 text-slate-400 hover:text-rose-500 rounded-xl"><Trash2 size={18} /></button></div></td></tr>))}</tbody></table></div>
+          </div>
+        )}
+
+        {tab === 'logs' && (
+          <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-xl max-h-[600px] overflow-y-auto">
+             <div className="p-8 border-b sticky top-0 bg-white dark:bg-slate-900 z-10 flex justify-between items-center"><h3 className="font-black uppercase tracking-widest dark:text-white">Real-time Activity Log</h3><Activity size={20} className="text-indigo-600" /></div>
+             <div className="divide-y divide-slate-50 dark:divide-slate-800">
+               {state.auditLogs.map(log => (<div key={log.id} className="p-5 flex justify-between items-center hover:bg-slate-50 transition-colors"><div className="space-y-1"><p className="text-sm font-bold dark:text-white">{log.action}</p><p className="text-[10px] font-black uppercase text-indigo-500">{log.userName} • {log.module}</p></div><span className="text-[10px] font-mono font-bold text-slate-400">{format(new Date(log.timestamp), 'HH:mm')}</span></div>))}
+             </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const AdminLoginModal: React.FC<{ onClose: () => void; onLogin: (success: boolean) => void }> = ({ onClose, onLogin }) => {
+  const [passcode, setPasscode] = useState(''); const [error, setError] = useState(false);
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (passcode === '9988') onLogin(true); else { setError(true); setTimeout(() => setError(false), 1500); } };
+  return (
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-lg">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-[400px] rounded-[40px] shadow-2xl p-10 border border-white/10 animate-in zoom-in-95">
+        <div className="flex flex-col items-center text-center space-y-6 mb-10">
+          <div className="w-20 h-20 bg-indigo-600 rounded-[28px] flex items-center justify-center text-white shadow-2xl shadow-indigo-500/40"><Fingerprint size={40} /></div>
+          <div><h2 className="text-xl font-black uppercase tracking-[0.3em] dark:text-white">Authorized</h2><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Personnel Verification Gateway</p></div>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <input type="password" placeholder="Enter Access Key" className={`w-full px-6 py-5 bg-slate-100 dark:bg-slate-800 rounded-[24px] border-2 transition-all text-center text-3xl font-black tracking-[0.5em] outline-none ${error ? 'border-rose-500 animate-shake' : 'border-transparent focus:border-indigo-600 dark:text-white'}`} value={passcode} onChange={e => setPasscode(e.target.value)} autoFocus />
+          <div className="flex gap-4 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-4 text-slate-400 font-black text-[10px] uppercase tracking-widest">Abort</button>
+            <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95">Verify</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 };

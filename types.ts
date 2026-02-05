@@ -2,6 +2,27 @@
 export type Priority = 'Low' | 'Medium' | 'High';
 export type TaskStatus = 'Pending' | 'In Progress' | 'Completed';
 export type RecurrenceType = 'One-time' | 'Daily' | 'Weekly' | 'Monthly';
+export type Role = 'Super Admin' | 'Admin' | 'Manager' | 'Staff';
+
+export interface Permission {
+  viewTasks: boolean;
+  editTasks: boolean;
+  startTimer: boolean;
+  editTime: boolean;
+  downloadReports: boolean;
+  manageBills: boolean;
+  manageUsers: boolean;
+  manageSettings: boolean;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  suspended: boolean;
+  lastLogin?: string;
+}
 
 export interface Task {
   id: string;
@@ -42,10 +63,52 @@ export interface UtilityBill {
   attachmentUrl?: string;
 }
 
+export interface AppSettings {
+  branding: {
+    orgName: string;
+    logoUrl: string;
+    footerText: string;
+    showSpiritualHeader: boolean;
+  };
+  layout: {
+    sidebarEnabled: boolean;
+    topbarEnabled: boolean;
+    compactMode: boolean;
+    landingPage: 'dashboard' | 'tasks' | 'library' | 'utilities';
+  };
+  modules: {
+    taskManager: boolean;
+    timeTracking: boolean;
+    reminderLibrary: boolean;
+    utilityBills: boolean;
+    analytics: boolean;
+  };
+  trackingRules: {
+    autoStartTimer: boolean;
+    allowManualTimeEdit: boolean;
+    maxDailyHours: number;
+    currency: string;
+  };
+  rolePermissions: Record<Role, Permission>;
+}
+
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  action: string;
+  module: string;
+}
+
 export interface AppState {
   tasks: Task[];
   bills: UtilityBill[];
   reminders: Reminder[];
+  users: User[];
+  auditLogs: AuditLog[];
+  settings: AppSettings;
   isDarkMode: boolean;
   activeTaskId: string | null;
+  currentUser: User;
 }

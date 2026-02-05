@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Layout, Dashboard, Tasks, Utilities, Reports, Settings, ReminderLibrary } from './components/Views.tsx';
-import { Task, UtilityBill, AppState, Reminder } from './types.ts';
-import { INITIAL_TASKS, INITIAL_BILLS, INITIAL_REMINDERS } from './constants.tsx';
+import { Layout, Dashboard, Tasks, Utilities, Reports, Settings, ReminderLibrary, AdminPanel, AdminLoginModal } from './components/Views.tsx';
+import { Task, UtilityBill, AppState, Reminder, User, AppSettings, AuditLog } from './types.ts';
+import { INITIAL_TASKS, INITIAL_BILLS, INITIAL_REMINDERS, INITIAL_SETTINGS, INITIAL_USERS } from './constants.tsx';
+// Added missing format import from date-fns
+import { format } from 'date-fns';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -10,21 +12,19 @@ const App: React.FC = () => {
       tasks: INITIAL_TASKS,
       bills: INITIAL_BILLS,
       reminders: INITIAL_REMINDERS,
+      users: INITIAL_USERS,
+      auditLogs: [],
+      settings: INITIAL_SETTINGS,
       isDarkMode: false,
       activeTaskId: null,
+      currentUser: INITIAL_USERS[0],
     };
     
     try {
-      const saved = localStorage.getItem('chronos_state');
+      const saved = localStorage.getItem('chronos_state_v4');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return {
-          ...defaultState,
-          ...parsed,
-          tasks: Array.isArray(parsed.tasks) ? parsed.tasks : defaultState.tasks,
-          bills: Array.isArray(parsed.bills) ? parsed.bills : defaultState.bills,
-          reminders: Array.isArray(parsed.reminders) ? parsed.reminders : defaultState.reminders,
-        };
+        return { ...defaultState, ...parsed };
       }
     } catch (e) {
       console.error("Failed to load state from localStorage", e);
@@ -32,182 +32,122 @@ const App: React.FC = () => {
     return defaultState;
   });
 
-  const [currentView, setCurrentView] = useState<'dashboard' | 'tasks' | 'utilities' | 'reports' | 'settings' | 'library'>('dashboard');
+  const [currentView, setCurrentView] = useState<any>(state.settings.layout.landingPage || 'dashboard');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('chronos_state', JSON.stringify(state));
+    localStorage.setItem('chronos_state_v4', JSON.stringify(state));
   }, [state]);
 
-  // Handle dark mode via document element class
   useEffect(() => {
-    if (state.isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    if (state.isDarkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
   }, [state.isDarkMode]);
 
-  // Timer logic for multiple active tasks
-  useEffect(() => {
-    const hasActiveTasks = state.tasks.some(t => t.status === 'In Progress');
-    let interval: number | undefined;
+  const logAction = useCallback((action: string, module: string) => {
+    const newLog: AuditLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+      userId: state.currentUser.id,
+      userName: state.currentUser.name,
+      action,
+      module,
+    };
+    setState(prev => ({ ...prev, auditLogs: [newLog, ...prev.auditLogs].slice(0, 100) }));
+  }, [state.currentUser]);
 
-    if (hasActiveTasks) {
-      interval = window.setInterval(() => {
-        setState(prev => {
-          const updatedTasks = prev.tasks.map(t => {
-            if (t.status === 'In Progress') {
-              return { ...t, actualTime: (t.actualTime || 0) + 1 / 60 };
-            }
-            return t;
-          });
-          const hasChanges = updatedTasks.some((t, i) => t.actualTime !== prev.tasks[i].actualTime);
-          if (!hasChanges) return prev;
-          return { ...prev, tasks: updatedTasks };
-        });
-      }, 1000);
-    }
+  // Enhanced Work Analysis Timer
+  useEffect(() => {
+    const activeTasks = state.tasks.filter(t => t.status === 'In Progress');
+    if (activeTasks.length === 0) return;
+
+    const interval = window.setInterval(() => {
+      setState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(t => t.status === 'In Progress' ? { ...t, actualTime: (t.actualTime || 0) + (1/60) } : t)
+      }));
+    }, 1000);
+
     return () => clearInterval(interval);
   }, [state.tasks.some(t => t.status === 'In Progress')]);
 
-  const toggleDarkMode = useCallback(() => setState(prev => ({ ...prev, isDarkMode: !prev.isDarkMode })), []);
-
   const addTask = useCallback((task: Omit<Task, 'id' | 'actualTime' | 'createdAt'>) => {
-    const newTask: Task = {
-      ...task,
-      id: Math.random().toString(36).substr(2, 9),
-      actualTime: 0,
-      createdAt: new Date().toISOString(),
-    };
-    setState(prev => ({ 
-      ...prev, 
-      tasks: [newTask, ...(Array.isArray(prev.tasks) ? prev.tasks : [])] 
-    }));
-  }, []);
-
-  const instantiateReminder = useCallback((reminder: Reminder) => {
-    const newTask: Task = {
-      id: Math.random().toString(36).substr(2, 9),
-      title: reminder.title,
-      category: reminder.category,
-      priority: reminder.priority,
-      estimatedTime: reminder.estimatedTime,
-      actualTime: 0,
-      type: reminder.type,
-      status: 'Pending',
-      dueDate: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString(),
-    };
-    setState(prev => ({ 
-      ...prev, 
-      tasks: [newTask, ...prev.tasks] 
-    }));
-  }, []);
-
-  const addReminder = useCallback((reminder: Omit<Reminder, 'id' | 'displayId'>) => {
-    const prefix = reminder.type === 'Daily' ? 'D' : reminder.type === 'Weekly' ? 'W' : 'M';
-    const count = state.reminders.filter(r => r.type === reminder.type).length + 1;
-    const newReminder: Reminder = {
-      ...reminder,
-      id: Math.random().toString(36).substr(2, 9),
-      displayId: `${prefix}-${count.toString().padStart(2, '0')}`,
-    };
-    setState(prev => ({
-      ...prev,
-      reminders: [...prev.reminders, newReminder]
-    }));
-  }, [state.reminders]);
-
-  const updateReminder = useCallback((id: string, updates: Partial<Reminder>) => {
-    setState(prev => ({
-      ...prev,
-      reminders: prev.reminders.map(r => r.id === id ? { ...r, ...updates } : r)
-    }));
-  }, []);
-
-  const deleteReminder = useCallback((id: string) => {
-    setState(prev => ({
-      ...prev,
-      reminders: prev.reminders.filter(r => r.id !== id)
-    }));
-  }, []);
+    const newTask: Task = { ...task, id: Math.random().toString(36).substr(2, 9), actualTime: 0, createdAt: new Date().toISOString() };
+    setState(prev => ({ ...prev, tasks: [newTask, ...prev.tasks] }));
+    logAction(`Created Task: ${newTask.title}`, 'Task Manager');
+  }, [logAction]);
 
   const updateTask = useCallback((taskId: string, updates: Partial<Task>) => {
-    setState(prev => ({
-      ...prev,
-      tasks: prev.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t)
-    }));
-  }, []);
-
-  const deleteTask = useCallback((taskId: string) => {
-    setState(prev => ({
-      ...prev,
-      tasks: prev.tasks.filter(t => t.id !== taskId),
-      activeTaskId: prev.activeTaskId === taskId ? null : prev.activeTaskId
-    }));
-  }, []);
-
-  const startTask = useCallback((taskId: string) => {
     setState(prev => {
       const updatedTasks = prev.tasks.map(t => {
         if (t.id === taskId) {
-          return { ...t, status: 'In Progress' as const, startTime: Date.now() };
+          const updated = { ...t, ...updates };
+          // Logic: Stop timer if completed
+          if (updates.status === 'Completed') {
+            updated.completedAt = new Date().toISOString();
+          }
+          return updated;
         }
         return t;
       });
       return { ...prev, tasks: updatedTasks };
     });
-  }, []);
+    if (updates.status) logAction(`Status update: ${updates.status} for ${taskId}`, 'Task Manager');
+  }, [logAction]);
 
-  const pauseTask = useCallback((taskId: string) => {
-    updateTask(taskId, { status: 'Pending', lastPausedAt: Date.now() });
-  }, [updateTask]);
+  const deleteTask = useCallback((taskId: string) => {
+    setState(prev => ({ ...prev, tasks: prev.tasks.filter(t => t.id !== taskId) }));
+    logAction('Deleted Task Record', 'Task Manager');
+  }, [logAction]);
 
-  const completeTask = useCallback((taskId: string) => {
-    updateTask(taskId, { status: 'Completed', completedAt: new Date().toISOString() });
-  }, [updateTask]);
+  const cloneTask = useCallback((taskId: string) => {
+    const source = state.tasks.find(t => t.id === taskId);
+    if (!source) return;
+    addTask({ ...source, title: `${source.title} (Clone)`, status: 'Pending' });
+  }, [state.tasks, addTask]);
 
   const addBill = useCallback((bill: Omit<UtilityBill, 'id'>) => {
-    const newBill: UtilityBill = {
-      ...bill,
-      id: Math.random().toString(36).substr(2, 9),
-    };
-    setState(prev => ({
-      ...prev,
-      bills: [newBill, ...(Array.isArray(prev.bills) ? prev.bills : [])]
-    }));
+    const newBill: UtilityBill = { ...bill, id: Math.random().toString(36).substr(2, 9) };
+    setState(prev => ({ ...prev, bills: [newBill, ...prev.bills] }));
+    logAction(`Logged Bill: ${newBill.type}`, 'Utility Bills');
+  }, [logAction]);
+
+  const updateBill = useCallback((id: string, u: Partial<UtilityBill>) => {
+    setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id === id ? { ...b, ...u } : b) }));
   }, []);
 
-  const updateBill = useCallback((billId: string, updates: Partial<UtilityBill>) => {
-    setState(prev => ({
-      ...prev,
-      bills: prev.bills.map(b => b.id === billId ? { ...b, ...updates } : b)
-    }));
+  const deleteBill = useCallback((id: string) => {
+    setState(prev => ({ ...prev, bills: prev.bills.filter(b => b.id !== id) }));
   }, []);
+
+  // Added missing cloneBill implementation
+  const cloneBill = useCallback((id: string) => {
+    const source = state.bills.find(b => b.id === id);
+    if (!source) return;
+    addBill({ ...source, referenceNumber: `${source.referenceNumber} (Copy)` });
+  }, [state.bills, addBill]);
 
   return (
-    <Layout 
-      currentView={currentView} 
-      setView={setCurrentView} 
-      isDarkMode={state.isDarkMode} 
-      toggleDarkMode={toggleDarkMode}
-    >
-      {currentView === 'dashboard' && <Dashboard state={state} onStart={startTask} onPause={pauseTask} onComplete={completeTask} />}
-      {currentView === 'tasks' && <Tasks tasks={state.tasks} onAdd={addTask} onUpdate={updateTask} onDelete={deleteTask} onStart={startTask} onPause={pauseTask} onComplete={completeTask} activeTaskId={state.activeTaskId} />}
-      {currentView === 'utilities' && <Utilities bills={state.bills} onAdd={addBill} onUpdate={updateBill} />}
-      {currentView === 'reports' && <Reports state={state} />}
-      {currentView === 'library' && (
-        <ReminderLibrary 
-          reminders={state.reminders} 
-          onInstantiate={instantiateReminder} 
-          onAdd={addReminder}
-          onUpdate={updateReminder}
-          onDelete={deleteReminder}
-          setView={setCurrentView} 
-        />
-      )}
-      {currentView === 'settings' && <Settings state={state} setState={setState} />}
-    </Layout>
+    <>
+      <Layout 
+        state={state}
+        currentView={currentView} 
+        setView={setCurrentView} 
+        toggleDarkMode={() => setState(p => ({...p, isDarkMode: !p.isDarkMode}))}
+        isAdminAuthenticated={isAdminAuthenticated}
+        openAdminLogin={() => setIsAdminLoginOpen(true)}
+      >
+        {currentView === 'dashboard' && <Dashboard state={state} onStart={id => updateTask(id, { status: 'In Progress' })} onPause={id => updateTask(id, { status: 'Pending' })} onComplete={id => updateTask(id, { status: 'Completed' })} setView={setCurrentView} />}
+        {currentView === 'tasks' && <Tasks tasks={state.tasks} onAdd={addTask} onUpdate={updateTask} onDelete={deleteTask} onClone={cloneTask} />}
+        {currentView === 'utilities' && <Utilities bills={state.bills} onAdd={addBill} onClone={cloneBill} onDelete={deleteBill} onUpdate={updateBill} />}
+        {currentView === 'reports' && <Reports state={state} />}
+        {currentView === 'library' && <ReminderLibrary reminders={state.reminders} onInstantiate={r => addTask({ ...r, status: 'Pending', dueDate: format(new Date(), 'yyyy-MM-dd') })} onAdd={r => setState(p => ({...p, reminders: [...p.reminders, {...r, id: Math.random().toString(), displayId: 'NEW'}]}))} onUpdate={(id, u) => setState(p => ({...p, reminders: p.reminders.map(r => r.id === id ? {...r, ...u} : r)}))} onDelete={id => setState(p => ({...p, reminders: p.reminders.filter(r => r.id !== id)}))} setView={setCurrentView} />}
+        {currentView === 'admin' && <AdminPanel state={state} updateSettings={s => setState(p => ({...p, settings: s}))} addUser={u => setState(p => ({...p, users: [...p.users, {...u, id: Math.random().toString()}]}))} updateUser={(id, u) => setState(p => ({...p, users: p.users.map(us => us.id === id ? {...us, ...u} : us)}))} deleteUser={id => setState(p => ({...p, users: p.users.filter(u => u.id !== id)}))} />}
+        {currentView === 'settings' && <Settings state={state} setState={setState} />}
+      </Layout>
+      {isAdminLoginOpen && <AdminLoginModal onClose={() => setIsAdminLoginOpen(false)} onLogin={() => { setIsAdminAuthenticated(true); setIsAdminLoginOpen(false); setCurrentView('admin'); }} />}
+    </>
   );
 };
 
