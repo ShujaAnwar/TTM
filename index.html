@@ -7,9 +7,20 @@
     <title>TTM by Hashmi</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Amiri:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              arabic: ['Amiri', 'serif'],
+            }
+          }
+        }
+      }
+    </script>
     <style>
         body { font-family: 'Inter', sans-serif; }
-        .font-arabic { font-family: 'Amiri', serif; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -26,19 +37,29 @@
 <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
-    "recharts": "https://esm.sh/recharts@^3.7.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "date-fns": "https://esm.sh/date-fns@^4.1.0",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react",
+    "recharts": "https://esm.sh/recharts@2.13.3?external=react,react-dom",
+    "date-fns": "https://esm.sh/date-fns@4.1.0",
     "jspdf": "https://esm.sh/jspdf@2.5.1",
-    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2"
+    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
 </script>
 </head>
-<body class="bg-slate-50 text-slate-900 transition-colors duration-200">
-    <div id="root"></div>
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-50 transition-colors duration-200">
+    <div id="root">
+        <div class="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+            <div class="animate-pulse flex flex-col items-center gap-4">
+                <div class="w-12 h-12 bg-indigo-600 rounded-xl"></div>
+                <p class="text-slate-400 font-medium">Loading TTM by Hashmi...</p>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="index.tsx"></script>
 </body>
 </html>

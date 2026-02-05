@@ -25,11 +25,12 @@ import {
   User,
   Paperclip,
   Loader2,
-  Copy
+  Copy,
+  Calendar
 } from 'lucide-react';
 import { Task, UtilityBill, AppState, Priority, RecurrenceType } from '../types';
 import { CATEGORIES, PRIORITIES, RECURRENCE_TYPES, CAMPUSES } from '../constants';
-import { format, differenceInDays, startOfWeek, endOfWeek, isSameDay } from 'date-fns';
+import { format, differenceInDays, startOfWeek, endOfWeek, isSameDay, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -45,7 +46,7 @@ export const Layout: React.FC<{
 }> = ({ children, currentView, setView, isDarkMode, toggleDarkMode }) => {
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
-      <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden md:flex">
+      <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden md:flex shrink-0">
         <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 dark:shadow-none">
             <Clock size={24} />
@@ -64,15 +65,15 @@ export const Layout: React.FC<{
         <div className="p-4">
           <button 
             onClick={toggleDarkMode}
-            className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 transition-colors"
+            className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
           >
             <span className="text-sm font-medium">{isDarkMode ? 'Dark Mode' : 'Light Mode'}</span>
-            {isDarkMode ? <Moon size={18} /> : <Sun size={18} />}
+            {isDarkMode ? <Moon size={18} className="text-indigo-400" /> : <Sun size={18} className="text-amber-500" />}
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-slate-50 dark:bg-slate-950">
         {/* Spiritual Header */}
         <div className="w-full py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center px-4 shrink-0 transition-colors">
           <h2 className="font-arabic text-xl md:text-2xl text-indigo-600 dark:text-indigo-400 font-bold mb-1">
@@ -94,7 +95,7 @@ export const Layout: React.FC<{
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">
-              <Clock size={16} className="text-indigo-600" />
+              <Clock size={16} className="text-indigo-600 dark:text-indigo-400" />
               <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
                 {format(new Date(), 'MMM dd, yyyy • HH:mm')}
               </span>
@@ -144,10 +145,10 @@ export const Dashboard: React.FC<{
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Productivity Score" value={`${productivityScore}%`} icon={<BarChart3 className="text-indigo-600" />} trend={productivityScore > 80 ? 'up' : 'down'} subtitle="Actual vs Estimated Time" />
-        <StatCard title="Daily Goal" value={`${completedToday}/${todayTasks.length}`} icon={<CheckSquare className="text-emerald-600" />} subtitle="Tasks Completed Today" />
-        <StatCard title="Time Tracked" value={formatTime(totalActual)} icon={<Clock className="text-amber-600" />} subtitle="Total Working Hours" />
-        <StatCard title="Utility Status" value={state.bills.filter(b => b.status === 'Pending').length.toString()} icon={<Receipt className="text-rose-600" />} subtitle="Pending Bill Payments" />
+        <StatCard title="Productivity Score" value={`${productivityScore}%`} icon={<BarChart3 className="text-indigo-600 dark:text-indigo-400" />} trend={productivityScore > 80 ? 'up' : 'down'} subtitle="Actual vs Estimated Time" />
+        <StatCard title="Daily Goal" value={`${completedToday}/${todayTasks.length}`} icon={<CheckSquare className="text-emerald-600 dark:text-emerald-400" />} subtitle="Tasks Completed Today" />
+        <StatCard title="Time Tracked" value={formatTime(totalActual)} icon={<Clock className="text-amber-600 dark:text-amber-400" />} subtitle="Total Working Hours" />
+        <StatCard title="Utility Status" value={state.bills.filter(b => b.status === 'Pending').length.toString()} icon={<Receipt className="text-rose-600 dark:text-rose-400" />} subtitle="Pending Bill Payments" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -155,7 +156,7 @@ export const Dashboard: React.FC<{
           <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <Play size={18} className="text-indigo-600" /> In Progress
+                <Play size={18} className="text-indigo-600 dark:text-indigo-400" /> In Progress
               </h2>
               <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-full">
                 {inProgress.length} ACTIVE
@@ -178,13 +179,13 @@ export const Dashboard: React.FC<{
           <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-800 dark:text-white">Upcoming Deadlines</h2>
-              <button className="text-sm font-medium text-indigo-600 hover:underline">View All</button>
+              <button className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">View All</button>
             </div>
             <div className="p-6">
               <div className="space-y-4">
                 {state.tasks.filter(t => t.status !== 'Completed').slice(0, 4).map(task => (
-                  <div key={task.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 hover:border-slate-200 transition-colors">
-                    <div className={`w-2 h-10 rounded-full ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink' : ''}`} />
+                  <div key={task.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
+                    <div className={`w-2 h-10 rounded-full ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink shadow-[0_0_10px_rgba(244,63,94,0.4)]' : ''}`} />
                     <div className="flex-1">
                       <h4 className="font-semibold text-slate-800 dark:text-white line-clamp-1">{task.title}</h4>
                       <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-1">
@@ -194,7 +195,7 @@ export const Dashboard: React.FC<{
                     {task.status === 'In Progress' ? (
                       <button onClick={() => onPause(task.id)} className="p-2 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-all"><Pause size={20} /></button>
                     ) : (
-                      <button onClick={() => onStart(task.id)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"><Play size={20} /></button>
+                      <button onClick={() => onStart(task.id)} className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"><Play size={20} /></button>
                     )}
                   </div>
                 ))}
@@ -212,12 +213,12 @@ export const Dashboard: React.FC<{
                   <Pie data={[{ name: 'Pending', value: state.tasks.filter(t => t.status === 'Pending').length }, { name: 'In Progress', value: state.tasks.filter(t => t.status === 'In Progress').length }, { name: 'Completed', value: state.tasks.filter(t => t.status === 'Completed').length }]} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
                     <Cell fill="#6366f1" /><Cell fill="#fbbf24" /><Cell fill="#10b981" />
                   </Pie>
-                  <Tooltip /><Legend />
+                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} /><Legend />
                 </PieChart>
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-6 text-white relative overflow-hidden">
+          <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-6 text-white relative overflow-hidden shadow-lg shadow-indigo-100 dark:shadow-none">
              <div className="absolute top-0 right-0 p-8 opacity-10"><Receipt size={120} /></div>
              <h3 className="text-lg font-bold mb-2">Operational Insight</h3>
              <p className="text-indigo-100 text-sm mb-4 leading-relaxed">You have <strong>{state.bills.filter(b => b.status === 'Pending').length} pending bills</strong> that require attention.</p>
@@ -318,7 +319,7 @@ export const Utilities: React.FC<{ bills: UtilityBill[]; onAdd: (bill: any) => v
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {bills.map(bill => (
                 <tr key={bill.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="px-6 py-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 flex items-center justify-center"><Receipt size={16} /></div><span className="font-semibold text-slate-800 dark:text-white">{bill.type}</span></div></td>
+                  <td className="px-6 py-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center"><Receipt size={16} /></div><span className="font-semibold text-slate-800 dark:text-white">{bill.type}</span></div></td>
                   <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 font-mono">{bill.referenceNumber}</td>
                   <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400">{bill.location}</td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-700 dark:text-slate-300">{format(new Date(bill.dueDate), 'MMM dd, yyyy')}</td>
@@ -328,7 +329,7 @@ export const Utilities: React.FC<{ bills: UtilityBill[]; onAdd: (bill: any) => v
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => handleClone(bill)} title="Clone Bill" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Copy size={18} /></button>
+                      <button onClick={() => handleClone(bill)} title="Clone Bill" className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Copy size={18} /></button>
                       <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"><MoreVertical size={18} /></button>
                     </div>
                   </td>
@@ -393,10 +394,31 @@ const UtilityModal: React.FC<{ bill?: any; onClose: () => void; onSubmit: (data:
 export const Reports: React.FC<{ state: AppState }> = ({ state }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const completedTasks = useMemo(() => state.tasks.filter(t => t.status === 'Completed'), [state.tasks]);
-  const pendingTasksCount = state.tasks.filter(t => t.status !== 'Completed').length;
+  const [fromDate, setFromDate] = useState(format(startOfWeek(new Date()), 'yyyy-MM-dd'));
+  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const filteredTasks = useMemo(() => {
+    const start = startOfDay(parseISO(fromDate));
+    const end = endOfDay(parseISO(toDate));
+    return state.tasks.filter(t => {
+      const taskDate = parseISO(t.dueDate);
+      return taskDate >= start && taskDate <= end;
+    });
+  }, [state.tasks, fromDate, toDate]);
+
+  const filteredBills = useMemo(() => {
+    const start = startOfDay(parseISO(fromDate));
+    const end = endOfDay(parseISO(toDate));
+    return state.bills.filter(b => {
+      const billDate = parseISO(b.dueDate);
+      return billDate >= start && billDate <= end;
+    });
+  }, [state.bills, fromDate, toDate]);
+
+  const completedTasks = useMemo(() => filteredTasks.filter(t => t.status === 'Completed'), [filteredTasks]);
+  const pendingTasksCount = filteredTasks.filter(t => t.status !== 'Completed').length;
   const totalActual = completedTasks.reduce((acc, t) => acc + (t.actualTime || 0), 0);
-  const totalEstimated = state.tasks.reduce((acc, t) => acc + (t.estimatedTime || 0), 0);
+  const totalEstimated = filteredTasks.reduce((acc, t) => acc + (t.estimatedTime || 0), 0);
 
   const handleExportPDF = async () => {
     setIsGenerating(true); setErrorMessage(null);
@@ -405,18 +427,58 @@ export const Reports: React.FC<{ state: AppState }> = ({ state }) => {
       const primaryColor = [99, 102, 241]; const textColor = [30, 41, 59];
       doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.text('TTM BY HASHMI', 20, 20);
-      doc.setFontSize(14); doc.setTextColor(textColor[0], textColor[1], textColor[2]); doc.text('Performance & Operations Summary Report', 20, 30);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 20, 38);
-      doc.text(`Reporting Period: Today (${format(new Date(), 'MMM dd, yyyy')})`, 20, 44);
+      doc.setFontSize(14); doc.setTextColor(textColor[0], textColor[1], textColor[2]); doc.text('Operational Performance Report', 20, 30);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); 
+      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 20, 38);
+      doc.text(`Reporting Period: ${format(parseISO(fromDate), 'MMM dd, yyyy')} to ${format(parseISO(toDate), 'MMM dd, yyyy')}`, 20, 44);
+      
       doc.setDrawColor(226, 232, 240); doc.line(20, 50, 190, 50);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Operational Overview', 20, 60);
-      const stats = [ { label: 'Total Tasks', value: state.tasks.length.toString() }, { label: 'Completed', value: completedTasks.length.toString() }, { label: 'Pending', value: pendingTasksCount.toString() }, { label: 'Total Tracked', value: formatTime(totalActual) }, { label: 'Efficiency', value: totalActual > 0 ? `${Math.round((totalEstimated/totalActual)*100)}%` : 'N/A' }];
+      
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Summary Statistics', 20, 60);
+      const stats = [ 
+        { label: 'Total Tasks', value: filteredTasks.length.toString() }, 
+        { label: 'Completed', value: completedTasks.length.toString() }, 
+        { label: 'Pending', value: pendingTasksCount.toString() }, 
+        { label: 'Total Time Tracked', value: formatTime(totalActual) }, 
+        { label: 'Efficiency Index', value: totalActual > 0 ? `${Math.round((totalEstimated/totalActual)*100)}%` : 'N/A' },
+        { label: 'Bills in Range', value: filteredBills.length.toString() }
+      ];
+      
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      stats.forEach((stat, idx) => { const yPos = 70 + (idx * 8); doc.text(`${stat.label}:`, 25, yPos); doc.setFont('helvetica', 'bold'); doc.text(stat.value, 60, yPos); doc.setFont('helvetica', 'normal'); });
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Detailed Task Breakdown', 20, 115);
-      const tableData = state.tasks.map(task => [ task.title || 'Untitled', task.category || 'General', task.status || 'Pending', formatTime(task.estimatedTime || 0), formatTime(task.actualTime || 0), task.type || 'One-time' ]);
-      autoTable(doc, { startY: 120, head: [['Task Name', 'Category', 'Status', 'Est. Time', 'Actual Time', 'Recurrence']], body: tableData, headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 10, fontStyle: 'bold' }, bodyStyles: { fontSize: 9, textColor: textColor }, alternateRowStyles: { fillColor: [248, 250, 252] }, margin: { left: 20, right: 20 }, didDrawPage: (data) => { const pageCount = doc.getNumberOfPages(); doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(148, 163, 184); doc.text(`TTM by Hashmi - Confidential Report - Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, doc.internal.pageSize.height - 10); } });
-      const filename = `TTM_Report_${format(new Date(), 'yyyy-MM-dd_HHmm')}.pdf`;
+      stats.forEach((stat, idx) => { 
+        const yPos = 70 + (idx * 8); 
+        doc.text(`${stat.label}:`, 25, yPos); 
+        doc.setFont('helvetica', 'bold'); 
+        doc.text(stat.value, 65, yPos); 
+        doc.setFont('helvetica', 'normal'); 
+      });
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Task Log', 20, 125);
+      const tableData = filteredTasks.map(task => [ 
+        task.title || 'Untitled', 
+        task.category || 'General', 
+        task.status || 'Pending', 
+        formatTime(task.estimatedTime || 0), 
+        formatTime(task.actualTime || 0),
+        task.dueDate
+      ]);
+      
+      autoTable(doc, { 
+        startY: 130, 
+        head: [['Task', 'Category', 'Status', 'Est. Time', 'Act. Time', 'Due Date']], 
+        body: tableData, 
+        headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' }, 
+        bodyStyles: { fontSize: 8, textColor: textColor }, 
+        alternateRowStyles: { fillColor: [248, 250, 252] }, 
+        margin: { left: 20, right: 20 },
+        didDrawPage: (data) => { 
+          const pageCount = doc.getNumberOfPages(); 
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(148, 163, 184); 
+          doc.text(`TTM by Hashmi - Generated Report - Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, doc.internal.pageSize.height - 10); 
+        } 
+      });
+
+      const filename = `TTM_Report_${fromDate}_to_${toDate}.pdf`;
       doc.save(filename);
     } catch (err) { console.error('PDF Error:', err); setErrorMessage('Failed to generate PDF.'); } finally { setIsGenerating(false); }
   };
@@ -427,39 +489,92 @@ export const Reports: React.FC<{ state: AppState }> = ({ state }) => {
   }, []);
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div><h2 className="text-2xl font-bold text-slate-800 dark:text-white">Operations Performance</h2><p className="text-slate-500 dark:text-slate-400">Detailed analytics and professional summaries</p></div>
-        <button onClick={handleExportPDF} disabled={isGenerating} className={`flex items-center gap-2 px-6 py-2.5 bg-slate-800 dark:bg-slate-700 text-white rounded-xl font-bold shadow-lg hover:bg-slate-900 transition-all disabled:opacity-50`}>{isGenerating ? <><Loader2 size={20} className="animate-spin" /> Generating...</> : <><Download size={20} /> Export PDF Report</>}</button>
+    <div className="space-y-8 pb-20">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Reporting Engine</h2>
+            <p className="text-slate-500 dark:text-slate-400">Select a range to analyze and export operational data.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">From Date</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input 
+                  type="date" 
+                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">To Date</label>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input 
+                  type="date" 
+                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+        <button 
+          onClick={handleExportPDF} 
+          disabled={isGenerating} 
+          className={`flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50`}
+        >
+          {isGenerating ? <><Loader2 size={20} className="animate-spin" /> Preparing PDF...</> : <><Download size={20} /> Download Report</>}
+        </button>
       </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-8">Weekly Task Velocity</h3>
-            <div className="h-80 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData}><XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} /><YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} /><Tooltip cursor={{fill: '#f1f5f9'}} /><Bar dataKey="tasks" fill="#6366f1" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Trend Analysis</h3>
+              <span className="text-xs text-slate-400 font-medium">Auto-generated for range</span>
+            </div>
+            <div className="h-80 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData}><XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} /><YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} /><Tooltip cursor={{fill: '#f1f5f9'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }} /><Bar dataKey="tasks" fill="#6366f1" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div>
           </div>
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Recent Completion Summary</h3>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Activity Log (Range Selected)</h3>
             <div className="space-y-4">
-              {completedTasks.length > 0 ? completedTasks.slice(0, 5).map(task => (
-                <div key={task.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
-                  <div><h4 className="font-semibold text-slate-800 dark:text-white">{task.title}</h4><p className="text-xs text-slate-500">{task.category} • {task.completedAt ? format(new Date(task.completedAt), 'MMM dd, HH:mm') : 'Completed'}</p></div>
-                  <div className="text-right"><p className="text-sm font-bold text-indigo-600">{formatTime(task.actualTime)}</p><p className="text-[10px] text-slate-400">Est. {formatTime(task.estimatedTime)}</p></div>
+              {filteredTasks.length > 0 ? filteredTasks.slice(0, 10).map(task => (
+                <div key={task.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                  <div>
+                    <h4 className="font-semibold text-slate-800 dark:text-white">{task.title}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{task.category} • Scheduled: {task.dueDate}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-sm font-bold ${task.status === 'Completed' ? 'text-emerald-500' : 'text-indigo-600 dark:text-indigo-400'}`}>{task.status}</p>
+                    <p className="text-[10px] text-slate-400">Act: {formatTime(task.actualTime)}</p>
+                  </div>
                 </div>
-              )) : <div className="py-8 text-center text-slate-400 italic">No tasks completed yet.</div>}
+              )) : <div className="py-12 text-center text-slate-400 italic">No tasks recorded for this period.</div>}
             </div>
           </div>
         </div>
         <div className="space-y-8">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8 text-center">
-            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Productivity Index</h3>
-            <div className="inline-flex items-center justify-center w-32 h-32 rounded-full border-[8px] border-indigo-100 dark:border-indigo-900/30 relative"><span className="text-3xl font-black text-indigo-600">84%</span></div>
+            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Range Performance</h3>
+            <div className="inline-flex items-center justify-center w-36 h-36 rounded-full border-[10px] border-indigo-50 dark:border-indigo-900/30 relative">
+              <span className="text-4xl font-black text-indigo-600 dark:text-indigo-400">
+                {totalActual > 0 ? Math.round((totalEstimated/totalActual)*100) : 0}%
+              </span>
+            </div>
+            <p className="mt-6 text-sm text-slate-500 leading-relaxed px-4">Based on {completedTasks.length} completed tasks in the selected date range.</p>
           </div>
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Financial Summary</h3>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Financial Range Summary</h3>
             <div className="space-y-4">
-              <div className="flex justify-between py-2 border-b dark:border-slate-800"><span className="text-sm text-slate-500">Paid Utilities</span><span className="font-bold text-emerald-500">Rs. {state.bills.filter(b => b.status === 'Paid').reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
-              <div className="flex justify-between py-2 border-b dark:border-slate-800"><span className="text-sm text-slate-500">Pending Bills</span><span className="font-bold text-amber-500">Rs. {state.bills.filter(b => b.status === 'Pending').reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800"><span className="text-sm text-slate-500 dark:text-slate-400">Paid Bills</span><span className="font-bold text-emerald-500">Rs. {filteredBills.filter(b => b.status === 'Paid').reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800"><span className="text-sm text-slate-500 dark:text-slate-400">Pending Bills</span><span className="font-bold text-amber-500">Rs. {filteredBills.filter(b => b.status === 'Pending').reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
+              <div className="flex justify-between py-2 pt-4"><span className="text-sm font-bold text-slate-700 dark:text-slate-300">Total Obligation</span><span className="font-black text-slate-800 dark:text-white">Rs. {filteredBills.reduce((acc, b) => acc + (b.amount || 0), 0).toLocaleString()}</span></div>
             </div>
           </div>
         </div>
@@ -476,9 +591,9 @@ export const Settings: React.FC<{ state: AppState; setState: React.Dispatch<Reac
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8">
         <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6">User Profile</h3>
         <div className="flex items-center gap-6 mb-8"><div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-3xl font-black">AD</div><div><h4 className="text-lg font-bold text-slate-800 dark:text-white">Admin User</h4><p className="text-slate-500">ops-admin@organization.org</p></div></div>
-        <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl"><div className="flex items-center gap-3"><Moon size={20} className="text-slate-500" /><span className="font-medium text-slate-700 dark:text-slate-200">Dark Mode</span></div><button onClick={() => setState(prev => ({ ...prev, isDarkMode: !prev.isDarkMode }))} className={`w-12 h-6 rounded-full relative transition-colors ${state.isDarkMode ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${state.isDarkMode ? 'left-7' : 'left-1'}`} /></button></div>
+        <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl"><div className="flex items-center gap-3"><Moon size={20} className="text-slate-500 dark:text-slate-400" /><span className="font-medium text-slate-700 dark:text-slate-200">Dark Mode</span></div><button onClick={() => setState(prev => ({ ...prev, isDarkMode: !prev.isDarkMode }))} className={`w-12 h-6 rounded-full relative transition-colors ${state.isDarkMode ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${state.isDarkMode ? 'left-7' : 'left-1'}`} /></button></div>
       </div>
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8"><button onClick={() => { if(confirm('Reset all data?')) { localStorage.removeItem('chronos_state'); window.location.reload(); } }} className="w-full flex items-center justify-between p-4 border border-rose-200 text-rose-600 rounded-2xl hover:bg-rose-50 transition-colors"><span className="font-medium">Reset Data</span><Trash2 size={18} /></button></div>
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-8"><button onClick={() => { if(confirm('Reset all data?')) { localStorage.removeItem('chronos_state'); window.location.reload(); } }} className="w-full flex items-center justify-between p-4 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 rounded-2xl hover:bg-rose-50 dark:hover:bg-rose-900/10 transition-colors"><span className="font-medium">Reset Data</span><Trash2 size={18} /></button></div>
     </div>
   );
 };
@@ -486,20 +601,20 @@ export const Settings: React.FC<{ state: AppState; setState: React.Dispatch<Reac
 // --- Subcomponents ---
 
 const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; trend?: 'up' | 'down'; subtitle?: string }> = ({ title, value, icon, trend, subtitle }) => (
-  <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"><div className="flex justify-between mb-4"><div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">{icon}</div>{trend && <span className={`text-xs font-bold ${trend === 'up' ? 'text-emerald-500' : 'text-rose-500'}`}>{trend === 'up' ? '↑' : '↓'} 12%</span>}</div><h3 className="text-sm font-medium text-slate-500">{title}</h3><p className="text-2xl font-bold mt-1 text-slate-800 dark:text-white">{value}</p></div>
+  <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"><div className="flex justify-between mb-4"><div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl">{icon}</div>{trend && <span className={`text-xs font-bold ${trend === 'up' ? 'text-emerald-500' : 'text-rose-500'}`}>{trend === 'up' ? '↑' : '↓'} 12%</span>}</div><h3 className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</h3><p className="text-2xl font-bold mt-1 text-slate-800 dark:text-white">{value}</p></div>
 );
 
 const ActiveTaskRow: React.FC<{ task: Task; onPause: () => void; onComplete: () => void }> = ({ task, onPause, onComplete }) => (
-  <div className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><div className={`w-1.5 h-12 rounded-full bg-amber-400 ${task.priority === 'High' ? 'bg-rose-500 animate-blink shadow-[0_0_8px_rgba(244,63,94,0.6)]' : ''}`} /><div><h4 className="font-bold text-slate-800 dark:text-white text-lg">{task.title}</h4><div className="flex gap-2 text-xs mt-1 text-slate-400"><span>{task.category}</span>•<span>{formatTime(task.actualTime)} / {formatTime(task.estimatedTime)}</span></div></div></div><div className="flex gap-2"><button onClick={onPause} className="px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-bold">Pause</button><button onClick={onComplete} className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold">Complete</button></div></div>
+  <div className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><div className={`w-1.5 h-12 rounded-full bg-amber-400 ${task.priority === 'High' ? 'bg-rose-500 animate-blink shadow-[0_0_8px_rgba(244,63,94,0.6)]' : ''}`} /><div><h4 className="font-bold text-slate-800 dark:text-white text-lg">{task.title}</h4><div className="flex gap-2 text-xs mt-1 text-slate-400"><span>{task.category}</span>•<span>{formatTime(task.actualTime)} / {formatTime(task.estimatedTime)}</span></div></div></div><div className="flex gap-2"><button onClick={onPause} className="px-4 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl font-bold">Pause</button><button onClick={onComplete} className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-100 dark:shadow-none">Complete</button></div></div>
 );
 
 const TaskCard: React.FC<{ task: Task; onStart: () => void; onPause: () => void; onComplete: () => void; onDelete: () => void; isActive: boolean }> = ({ task, onStart, onPause, onComplete, onDelete, isActive }) => (
   <div className={`p-6 bg-white dark:bg-slate-900 rounded-2xl border transition-all ${isActive ? 'ring-2 ring-indigo-500 border-transparent shadow-xl' : 'border-slate-200 dark:border-slate-800 shadow-sm'}`}>
-    <div className="flex justify-between mb-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 uppercase tracking-widest">{task.type}</span><button onClick={onDelete} className="p-1.5 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button></div>
+    <div className="flex justify-between mb-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 uppercase tracking-widest">{task.type}</span><button onClick={onDelete} className="p-1.5 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button></div>
     <h3 className="text-lg font-bold text-slate-800 dark:text-white leading-tight min-h-[3rem] mb-2">{task.title}</h3>
-    <div className="flex items-center gap-2 mb-6"><div className={`w-2 h-2 rounded-full ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink shadow-[0_0_8px_rgba(244,63,94,0.6)]' : ''}`} /><span className="text-xs text-slate-500">{task.priority} Priority • {task.category}</span></div>
-    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl mb-6"><div><p className="text-[10px] font-bold text-slate-400 uppercase">Est.</p><p className="text-sm font-bold">{formatTime(task.estimatedTime)}</p></div><div><p className="text-[10px] font-bold text-slate-400 uppercase">Actual</p><p className="text-sm font-bold text-indigo-600">{formatTime(task.actualTime)}</p></div></div>
-    <div className="flex gap-2">{task.status === 'Completed' ? <div className="w-full py-2.5 bg-emerald-50 text-emerald-600 rounded-xl font-bold text-center">Completed</div> : isActive ? <><button onClick={onPause} className="flex-1 py-2.5 bg-amber-100 text-amber-700 rounded-xl font-bold">Pause</button><button onClick={onComplete} className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold">Complete</button></> : <button onClick={onStart} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg">Start Work</button>}</div>
+    <div className="flex items-center gap-2 mb-6"><div className={`w-2 h-2 rounded-full ${getPriorityColor(task.priority)} ${task.priority === 'High' ? 'animate-blink shadow-[0_0_8px_rgba(244,63,94,0.6)]' : ''}`} /><span className="text-xs text-slate-500 dark:text-slate-400">{task.priority} Priority • {task.category}</span></div>
+    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl mb-6"><div><p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Est.</p><p className="text-sm font-bold text-slate-800 dark:text-white">{formatTime(task.estimatedTime)}</p></div><div><p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Actual</p><p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{formatTime(task.actualTime)}</p></div></div>
+    <div className="flex gap-2">{task.status === 'Completed' ? <div className="w-full py-2.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl font-bold text-center">Completed</div> : isActive ? <><button onClick={onPause} className="flex-1 py-2.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-xl font-bold">Pause</button><button onClick={onComplete} className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold">Complete</button></> : <button onClick={onStart} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-100 dark:shadow-none">Start Work</button>}</div>
   </div>
 );
 
@@ -508,19 +623,19 @@ const TaskModal: React.FC<{ onClose: () => void; onSubmit: (data: any) => void }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 space-y-6">
-        <h2 className="text-xl font-bold">New Operational Task</h2>
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white">New Operational Task</h2>
         <div className="space-y-4">
-          <div><label className="text-xs font-bold text-slate-500 uppercase">Title</label><input type="text" className="w-full px-4 py-3 border dark:border-slate-800 dark:bg-slate-950 rounded-xl outline-none" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} autoFocus /></div>
+          <div><label className="text-xs font-bold text-slate-500 uppercase">Title</label><input type="text" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl outline-none dark:text-white" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} autoFocus /></div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Category</label><select className="w-full px-4 py-3 border dark:border-slate-800 dark:bg-slate-950 rounded-xl" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Priority</label><select className="w-full px-4 py-3 border dark:border-slate-800 dark:bg-slate-950 rounded-xl" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Category</label><select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Priority</label><select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Time (Min)</label><input type="number" className="w-full px-4 py-3 border dark:border-slate-800 dark:bg-slate-950 rounded-xl" value={formData.estimatedTime} onChange={e => setFormData({...formData, estimatedTime: e.target.value})} /></div>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Type</label><select className="w-full px-4 py-3 border dark:border-slate-800 dark:bg-slate-950 rounded-xl" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>{RECURRENCE_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Time (Min)</label><input type="number" className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.estimatedTime} onChange={e => setFormData({...formData, estimatedTime: e.target.value})} /></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Type</label><select className="w-full px-4 py-3 border border-slate-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl dark:text-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>{RECURRENCE_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
           </div>
         </div>
-        <div className="flex gap-4"><button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold">Discard</button><button onClick={() => { if(!formData.title.trim()) return; onSubmit({...formData, estimatedTime: parseInt(formData.estimatedTime) || 30}); onClose(); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-2xl font-bold">Create Task</button></div>
+        <div className="flex gap-4"><button onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:text-slate-700 dark:hover:text-slate-300">Discard</button><button onClick={() => { if(!formData.title.trim()) return; onSubmit({...formData, estimatedTime: parseInt(formData.estimatedTime) || 30}); onClose(); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 dark:shadow-none hover:bg-indigo-700 transition-all">Create Task</button></div>
       </div>
     </div>
   );

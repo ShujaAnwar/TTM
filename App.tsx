@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Layout, Dashboard, Tasks, Utilities, Reports, Settings } from './components/Views';
-import { Task, UtilityBill, AppState } from './types';
-import { INITIAL_TASKS, INITIAL_BILLS } from './constants';
+import { Layout, Dashboard, Tasks, Utilities, Reports, Settings } from './components/Views.tsx';
+import { Task, UtilityBill, AppState } from './types.ts';
+import { INITIAL_TASKS, INITIAL_BILLS } from './constants.tsx';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -36,16 +36,16 @@ const App: React.FC = () => {
     localStorage.setItem('chronos_state', JSON.stringify(state));
   }, [state]);
 
+  // Handle dark mode via document element class
   useEffect(() => {
     if (state.isDarkMode) {
       document.documentElement.classList.add('dark');
-      document.body.classList.add('bg-slate-900', 'text-slate-100');
     } else {
       document.documentElement.classList.remove('dark');
-      document.body.classList.remove('bg-slate-900', 'text-slate-100');
     }
   }, [state.isDarkMode]);
 
+  // Timer logic for multiple active tasks
   useEffect(() => {
     const hasActiveTasks = state.tasks.some(t => t.status === 'In Progress');
     let interval: number | undefined;
